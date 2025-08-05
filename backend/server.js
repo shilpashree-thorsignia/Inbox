@@ -1899,21 +1899,21 @@ const sendLinkedInMessage = async (contactName, message) => {
     console.log('Sending message...');
     
     // Try multiple send button selectors (LinkedIn UI changes frequently)
+    // NOTE: .msg-form__send-toggle is the 3-dots toggle button, NOT the send button
     const sendButtonSelectors = [
-      '.msg-form__send-toggle', // Current LinkedIn selector
-      'button[data-control-name="send_message"]', // Updated control name
-      'button[aria-label="Send message"]', // Full aria label
       'button[aria-label="Send"]', // Short aria label
-      '.msg-form__send-button:not([disabled])',
+      'button[data-control-name="send_message"]', // Primary send button selector
+      'button[aria-label="Send message"]', // Full aria label
+      '.msg-form__send-button:not([disabled])', // Send button class
       'button[data-control-name="send"]',
       'button[aria-label*="Send"]',
       '.msg-form__send-btn:not([disabled])',
       'button.msg-form__send-button',
-      'button[type="submit"]',
-      '.artdeco-button--primary',
       '[data-testid="send-button"]',
       '.msg-form button[type="submit"]',
-      '.msg-form .artdeco-button--primary'
+      '.msg-form .artdeco-button--primary',
+      'button[type="submit"]',
+      '.artdeco-button--primary'
     ];
     
     let sendButton = null;
