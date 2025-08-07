@@ -2679,9 +2679,21 @@ const sendLinkedInMessage = async (contactName, message) => {
         const name = await activePage.evaluate(el => el.textContent.trim(), nameElement);
         console.log(`Checking conversation: ${name}`);
         
-        if (name.includes(contactName) || contactName.includes(name)) {
+        // More flexible matching - check for partial matches and common variations
+        const normalizedName = name.toLowerCase().trim();
+        const normalizedContactName = contactName.toLowerCase().trim();
+        
+        // Check for exact match, partial match, or common name variations
+        const isMatch = 
+          normalizedName === normalizedContactName ||
+          normalizedName.includes(normalizedContactName) ||
+          normalizedContactName.includes(normalizedName) ||
+          normalizedName.split(' ').some(word => normalizedContactName.includes(word)) ||
+          normalizedContactName.split(' ').some(word => normalizedName.includes(word));
+        
+        if (isMatch) {
           targetConversation = conversation;
-          console.log(`Found target conversation: ${name}`);
+          console.log(`Found target conversation: ${name} (matches ${contactName})`);
           break;
         }
       }
@@ -2696,7 +2708,34 @@ const sendLinkedInMessage = async (contactName, message) => {
       // Enhanced search for the contact if not found in recent conversations
       console.log('Contact not found in recent conversations, trying enhanced search...');
       
-      const searchBox = await activePage.$('.msg-conversations-container__search-input');
+      // Try multiple search input selectors
+      const searchInputSelectors = [
+        '.msg-conversations-container__search-input',
+        '.msg-conversations-container input[type="text"]',
+        '.msg-conversations-container input[placeholder*="search"]',
+        '.msg-conversations-container input[placeholder*="Search"]',
+        'input[placeholder*="search"]',
+        'input[placeholder*="Search"]',
+        '.search-input',
+        '[data-testid="search-input"]'
+      ];
+      
+      let searchBox = null;
+      let searchSelector = null;
+      
+      for (const selector of searchInputSelectors) {
+        try {
+          searchBox = await activePage.$(selector);
+          if (searchBox) {
+            searchSelector = selector;
+            console.log(`Found search box using selector: ${selector}`);
+            break;
+          }
+        } catch (error) {
+          console.log(`Search selector ${selector} failed: ${error.message}`);
+        }
+      }
+      
       if (searchBox) {
         await enhancedPageInteraction(activePage, async () => {
           const searchBoxRect = await searchBox.boundingBox();
@@ -2719,22 +2758,138 @@ const sendLinkedInMessage = async (contactName, message) => {
         
         await adaptiveDelay(activePage, 500 + Math.random() * 500, 0.8);
         
-        // Enhanced typing with realistic patterns
+        // Clear any existing search text first
         await enhancedPageInteraction(activePage, async () => {
-          await humanType(activePage, '.msg-conversations-container__search-input', contactName);
+          await activePage.evaluate((selector) => {
+            const searchInput = document.querySelector(selector);
+            if (searchInput) {
+              searchInput.value = '';
+              searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+              searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }, searchSelector);
+        }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.8 });
+        
+        await adaptiveDelay(activePage, 500 + Math.random() * 500, 0.8);
+        
+        // Enhanced typing with realistic patterns
+        console.log(`Typing search term: ${contactName}`);
+        await enhancedPageInteraction(activePage, async () => {
+          await humanType(activePage, searchSelector, contactName);
         }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 1.2 });
         
         await adaptiveDelay(activePage, 2000 + Math.random() * 1000, 1.1);
         
-        // Look for search results
+        // Wait for search results to load and look for matching conversation
+        console.log('Waiting for search results to load...');
+        await adaptiveDelay(activePage, 1500 + Math.random() * 1000, 1.0);
+        
+        // Look for search results and verify they match
         const searchResults = await activePage.$$('.msg-conversation-listitem');
+        console.log(`Found ${searchResults.length} search results`);
+        
         if (searchResults.length > 0) {
-          targetConversation = searchResults[0];
+          // Check each search result to find a match
+          for (let i = 0; i < Math.min(3, searchResults.length); i++) {
+            const result = searchResults[i];
+            const nameElement = await result.$('.msg-conversation-listitem__participant-names');
+            if (nameElement) {
+              const name = await activePage.evaluate(el => el.textContent.trim(), nameElement);
+              console.log(`Checking search result: ${name}`);
+              
+              // Use the same flexible matching logic
+              const normalizedName = name.toLowerCase().trim();
+              const normalizedContactName = contactName.toLowerCase().trim();
+              
+              const isMatch = 
+                normalizedName === normalizedContactName ||
+                normalizedName.includes(normalizedContactName) ||
+                normalizedContactName.includes(normalizedName) ||
+                normalizedName.split(' ').some(word => normalizedContactName.includes(word)) ||
+                normalizedContactName.split(' ').some(word => normalizedName.includes(word));
+              
+              if (isMatch) {
+                targetConversation = result;
+                console.log(`Found target conversation via search: ${name} (matches ${contactName})`);
+                break;
+              }
+            }
+          }
+          
+          // If no exact match found, take the first result (LinkedIn search is usually accurate)
+          if (!targetConversation && searchResults.length > 0) {
+            targetConversation = searchResults[0];
+            const nameElement = await targetConversation.$('.msg-conversation-listitem__participant-names');
+            if (nameElement) {
+              const name = await activePage.evaluate(el => el.textContent.trim(), nameElement);
+              console.log(`Using first search result as fallback: ${name}`);
+            }
+          }
+        } else {
+          console.log('No search results found, trying to scroll through more conversations...');
+          // If no search results, try scrolling through more conversations
+          const allConversations = await activePage.$$('.msg-conversation-listitem');
+          console.log(`Checking all ${allConversations.length} conversations as fallback...`);
+          
+          for (let i = 3; i < Math.min(10, allConversations.length); i++) {
+            const conversation = allConversations[i];
+            const nameElement = await conversation.$('.msg-conversation-listitem__participant-names');
+            if (nameElement) {
+              const name = await activePage.evaluate(el => el.textContent.trim(), nameElement);
+              console.log(`Checking conversation ${i + 1}: ${name}`);
+              
+              const normalizedName = name.toLowerCase().trim();
+              const normalizedContactName = contactName.toLowerCase().trim();
+              
+              const isMatch = 
+                normalizedName === normalizedContactName ||
+                normalizedName.includes(normalizedContactName) ||
+                normalizedContactName.includes(normalizedName) ||
+                normalizedName.split(' ').some(word => normalizedContactName.includes(word)) ||
+                normalizedContactName.split(' ').some(word => normalizedName.includes(word));
+              
+              if (isMatch) {
+                targetConversation = conversation;
+                console.log(`Found target conversation in extended search: ${name} (matches ${contactName})`);
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        console.log('Search box not found, trying to scroll through more conversations...');
+        // If search box not found, try scrolling through more conversations
+        const allConversations = await activePage.$$('.msg-conversation-listitem');
+        console.log(`Checking all ${allConversations.length} conversations as fallback...`);
+        
+        for (let i = 3; i < Math.min(10, allConversations.length); i++) {
+          const conversation = allConversations[i];
+          const nameElement = await conversation.$('.msg-conversation-listitem__participant-names');
+          if (nameElement) {
+            const name = await activePage.evaluate(el => el.textContent.trim(), nameElement);
+            console.log(`Checking conversation ${i + 1}: ${name}`);
+            
+            const normalizedName = name.toLowerCase().trim();
+            const normalizedContactName = contactName.toLowerCase().trim();
+            
+            const isMatch = 
+              normalizedName === normalizedContactName ||
+              normalizedName.includes(normalizedContactName) ||
+              normalizedContactName.includes(normalizedName) ||
+              normalizedName.split(' ').some(word => normalizedContactName.includes(word)) ||
+              normalizedContactName.split(' ').some(word => normalizedName.includes(word));
+            
+            if (isMatch) {
+              targetConversation = conversation;
+              console.log(`Found target conversation in extended search: ${name} (matches ${contactName})`);
+              break;
+            }
+          }
         }
       }
       
       if (!targetConversation) {
-        throw new Error(`Conversation with ${contactName} not found even after enhanced search`);
+        throw new Error(`Conversation with ${contactName} not found even after enhanced search and extended conversation checking`);
       }
     }
     
@@ -4440,25 +4595,31 @@ const syncConversations = async (limit = DEFAULT_SYNC_LIMIT, userId = null) => {
         const conversationElements = await activePage.$$('.msg-conversation-listitem');
         console.log(`Found ${conversationElements.length} conversation elements`);
         
-        // Enhanced human-like searching behavior (same as sendLinkedInMessage)
-        for (let j = 0; j < conversationElements.length; j++) {
+        // Limit the number of conversations to check (2-3 for anti-bot detection)
+        const maxConversationsToCheck = Math.min(3, conversationElements.length);
+        console.log(`Checking first ${maxConversationsToCheck} conversations out of ${conversationElements.length} total conversations`);
+        
+        // Enhanced human-like searching behavior (limited to first few conversations)
+        for (let j = 0; j < maxConversationsToCheck; j++) {
           const element = conversationElements[j];
           
-          // Enhanced mouse movements to mimic human scanning
-          await enhancedPageInteraction(activePage, async () => {
-            const conversationBox = await element.boundingBox();
-            if (conversationBox) {
-              const scanX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 50;
-              const scanY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 30;
-              
-              await enhancedHumanMouseMove(activePage, scanX, scanY, {
-                speed: 'slow',
-                addJitter: true,
-                addMicroMovements: true,
-                addHesitation: Math.random() < 0.3
-              });
-            }
-          }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.6 });
+          // Only perform enhanced mouse movements for the first 2 conversations to avoid bot detection
+          if (j < 2) {
+            await enhancedPageInteraction(activePage, async () => {
+              const conversationBox = await element.boundingBox();
+              if (conversationBox) {
+                const scanX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 50;
+                const scanY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 30;
+                
+                await enhancedHumanMouseMove(activePage, scanX, scanY, {
+                  speed: 'slow',
+                  addJitter: true,
+                  addMicroMovements: true,
+                  addHesitation: Math.random() < 0.3
+                });
+              }
+            }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.6 });
+          }
           
           // Use the exact same selector as sendLinkedInMessage
           const nameElement = await element.$('.msg-conversation-listitem__participant-names');
@@ -4472,6 +4633,11 @@ const syncConversations = async (limit = DEFAULT_SYNC_LIMIT, userId = null) => {
               console.log(`Found target conversation: ${conversationName} (matches ${conversation.contact_name})`);
               break;
             }
+          }
+          
+          // Add a small delay between checks (only for first 2 conversations)
+          if (j < 2) {
+            await adaptiveDelay(activePage, 500 + Math.random() * 500, 0.6);
           }
         }
         
