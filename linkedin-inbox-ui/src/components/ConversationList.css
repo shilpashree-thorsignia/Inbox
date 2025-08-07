@@ -8,18 +8,20 @@
 }
 
 .conversation-list-header {
-  padding: 20px;
-  border-bottom: 1px solid #e0e0e0;
-  background-color: #fff;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e0e0e0;
+  background-color: #f8f9fa;
+  min-height: 48px;
 }
 
 .conversation-list-header h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   color: #333;
+  font-weight: 600;
 }
 
 .conversation-list-actions {
@@ -28,16 +30,50 @@
   align-items: center;
 }
 
+.sync-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.sync-limit-select {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 3px;
+  padding: 3px 4px;
+  font-size: 0.75rem;
+  color: #333;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  min-width: 50px;
+  max-width: 70px;
+}
+
+.sync-limit-select:hover {
+  border-color: #0073b1;
+}
+
+.sync-limit-select:disabled {
+  background-color: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
 .sync-button {
   background: #0073b1;
   color: white;
   border: none;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   cursor: pointer;
-  padding: 8px 12px;
-  border-radius: 4px;
+  padding: 4px 6px;
+  border-radius: 3px;
   transition: background-color 0.2s;
   font-weight: 500;
+  min-width: 28px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .sync-button:hover {

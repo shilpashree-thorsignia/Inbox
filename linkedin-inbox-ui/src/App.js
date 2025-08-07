@@ -21,6 +21,7 @@ function App() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
 
   // Handle conversation selection
   const handleSelectConversation = useCallback(async (conversationId) => {
@@ -71,11 +72,13 @@ function App() {
   }, []);
 
   // Sync conversations function - fetch latest messages from existing conversations
-  const syncConversations = useCallback(async () => {
+  const syncConversations = useCallback(async (limit = 5) => {
     try {
       setIsSyncing(true);
-      console.log('Syncing conversations...');
-      const data = await api.syncConversations();
+      setError(null); // Clear any previous errors
+      setSuccessMessage(null); // Clear any previous success messages
+      console.log(`Syncing conversations with limit: ${limit}...`);
+      const data = await api.syncConversations(limit);
       console.log('Conversations synced:', data);
       
       // Reload conversations to show updated data
@@ -85,9 +88,30 @@ function App() {
       if (selectedConversation) {
         await handleSelectConversation(selectedConversation.id);
       }
+      
+      // Show success message if new messages were found
+      if (data.data && data.data.newMessages > 0) {
+        setSuccessMessage(`✅ Sync completed: ${data.data.newMessages} new messages found in ${data.data.syncedConversations} conversations`);
+        console.log(`✅ Sync completed: ${data.data.newMessages} new messages found`);
+      } else {
+        setSuccessMessage('✅ Sync completed: No new messages found');
+        console.log('✅ Sync completed: No new messages found');
+      }
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 5000);
     } catch (err) {
       console.error('Failed to sync conversations:', err);
-      setError('Failed to sync conversations. Please try again later.');
+      // Check if it's a rate limit error
+      if (err.message && err.message.includes('rate limit')) {
+        setError('Rate limit exceeded. Please wait before syncing again.');
+      } else if (err.message && err.message.includes('session')) {
+        setError('LinkedIn session expired. Please reconnect to LinkedIn.');
+      } else {
+        setError('Failed to sync conversations. Please try again later.');
+      }
     } finally {
       setIsSyncing(false);
     }
@@ -195,6 +219,13 @@ function App() {
           <h1>LinkedIn Inbox Dashboard</h1>
         </div>
       </header>
+      
+      {/* Success Message */}
+      {successMessage && (
+        <div className="app-success" onClick={() => setSuccessMessage(null)}>
+          <div className="success-message">{successMessage}</div>
+        </div>
+      )}
       
       <div className="app-content">
         <div className="conversation-sidebar">

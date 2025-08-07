@@ -178,14 +178,15 @@ const scrapeConversations = async (limit = 5) => {
 };
 
 // Sync conversations function - fetch latest messages from existing conversations
-const syncConversations = async () => {
+const syncConversations = async (limit = 5) => {
   try {
     const response = await fetch(`${API_BASE_URL}/sync-conversations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...getAuthHeaders()
-      }
+      },
+      body: JSON.stringify({ limit })
     });
     
     if (!response.ok) {

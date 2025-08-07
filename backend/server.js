@@ -1502,8 +1502,14 @@ const MAX_CONVERSATIONS_PER_HOUR = 20;
 const MAX_CONVERSATIONS_PER_DAY = 100;
 const MIN_CONVERSATION_SCRAPE_INTERVAL = 5 * 60 * 1000; // 5 minutes between scrapes
 
+// Sync-specific limits (more conservative to avoid detection)
+const MAX_SYNC_PER_HOUR = 8; // More conservative than scraping
+const MAX_SYNC_PER_DAY = 30;
+const MIN_SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes between syncs (more conservative)
+const DEFAULT_SYNC_LIMIT = 5; // Default conversations to sync per request
+
 // Session activity limits
-const MAX_ACTIONS_PER_HOUR = 50; // Total actions (messages + scrapes + logins)
+const MAX_ACTIONS_PER_HOUR = 50; // Total actions (messages + scrapes + syncs + logins)
 const MAX_SESSION_DURATION = 4 * 60 * 60 * 1000; // 4 hours max session
 const MIN_SESSION_BREAK = 30 * 60 * 1000; // 30 minutes break between long sessions
 
@@ -1519,6 +1525,7 @@ const BEHAVIOR_RANDOMIZATION = {
 const activityTracker = {
   messages: [],
   conversations: [],
+  syncs: [], // New: track sync operations
   logins: [],
   totalActions: []
 };
@@ -1660,6 +1667,47 @@ const canScrapeConversations = () => {
   return { allowed: true, confidence: calculateConfidenceScore() };
 };
 
+// Check if we can sync conversations (more conservative than scraping)
+const canSyncConversations = () => {
+  cleanOldRecords();
+  const now = Date.now();
+  const oneHourAgo = now - (60 * 60 * 1000);
+  
+  // Check sync-specific limits
+  const syncsLastHour = activityTracker.syncs.filter(time => time > oneHourAgo).length;
+  if (syncsLastHour >= MAX_SYNC_PER_HOUR) {
+    return { allowed: false, reason: 'Sync hourly limit exceeded', waitTime: getNextAllowedTime('sync') };
+  }
+  
+  if (activityTracker.syncs.length >= MAX_SYNC_PER_DAY) {
+    return { allowed: false, reason: 'Sync daily limit exceeded', waitTime: getNextAllowedTime('sync') };
+  }
+  
+  // Check minimum interval with randomization (more conservative than scraping)
+  const lastSync = activityTracker.syncs[activityTracker.syncs.length - 1];
+  if (lastSync) {
+    const randomMultiplier = BEHAVIOR_RANDOMIZATION.scrapeInterval.min + 
+      Math.random() * (BEHAVIOR_RANDOMIZATION.scrapeInterval.max - BEHAVIOR_RANDOMIZATION.scrapeInterval.min);
+    const adjustedInterval = MIN_SYNC_INTERVAL * randomMultiplier;
+    
+    if ((now - lastSync) < adjustedInterval) {
+      return { 
+        allowed: false, 
+        reason: 'Too soon after last sync', 
+        waitTime: lastSync + adjustedInterval - now 
+      };
+    }
+  }
+  
+  // Check total activity limits
+  const totalActionsLastHour = activityTracker.totalActions.filter(time => time > oneHourAgo).length;
+  if (totalActionsLastHour >= MAX_ACTIONS_PER_HOUR) {
+    return { allowed: false, reason: 'Total activity limit exceeded', waitTime: getNextAllowedTime('total') };
+  }
+  
+  return { allowed: true, confidence: calculateConfidenceScore() };
+};
+
 // Calculate confidence score based on current activity patterns
 const calculateConfidenceScore = () => {
   const now = Date.now();
@@ -1691,6 +1739,10 @@ const getNextAllowedTime = (activityType) => {
       const oldestConversation = activityTracker.conversations.find(time => time > oneHourAgo);
       return oldestConversation ? (oldestConversation + (60 * 60 * 1000) - now) : 0;
     
+    case 'sync':
+      const oldestSync = activityTracker.syncs.find(time => time > oneHourAgo);
+      return oldestSync ? (oldestSync + (60 * 60 * 1000) - now) : 0;
+    
     case 'total':
       const oldestAction = activityTracker.totalActions.find(time => time > oneHourAgo);
       return oldestAction ? (oldestAction + (60 * 60 * 1000) - now) : 0;
@@ -1713,6 +1765,12 @@ const recordConversationScrape = () => {
   activityTracker.conversations.push(now);
   activityTracker.totalActions.push(now);
   conversationHistory.push(now);
+};
+
+const recordSync = () => {
+  const now = Date.now();
+  activityTracker.syncs.push(now);
+  activityTracker.totalActions.push(now);
 };
 
 const recordLogin = () => {
@@ -1756,6 +1814,19 @@ const getRateLimitStatus = () => {
         remaining: MAX_CONVERSATIONS_PER_DAY - activityTracker.conversations.length
       },
       nextAllowed: getNextAllowedTime('conversation')
+    },
+    syncs: {
+      hourly: {
+        current: activityTracker.syncs.filter(time => time > oneHourAgo).length,
+        limit: MAX_SYNC_PER_HOUR,
+        remaining: MAX_SYNC_PER_HOUR - activityTracker.syncs.filter(time => time > oneHourAgo).length
+      },
+      daily: {
+        current: activityTracker.syncs.length,
+        limit: MAX_SYNC_PER_DAY,
+        remaining: MAX_SYNC_PER_DAY - activityTracker.syncs.length
+      },
+      nextAllowed: getNextAllowedTime('sync')
     },
     totalActivity: {
       hourly: {
@@ -4018,6 +4089,49 @@ app.post('/api/rescrape', async (req, res) => {
   }
 });
 
+// Sync conversations endpoint - fetch latest messages from existing conversations
+app.post('/api/sync-conversations', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  
+  try {
+    const { limit = DEFAULT_SYNC_LIMIT } = req.body;
+    
+    // Check rate limiting before proceeding (more conservative than scraping)
+    const rateLimitCheck = canSyncConversations();
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        message: rateLimitCheck.reason,
+        waitTime: rateLimitCheck.waitTime,
+        rateLimitStatus: getRateLimitStatus()
+      });
+    }
+    
+    console.log(`Starting conversation syncing with limit: ${limit} (Confidence: ${rateLimitCheck.confidence?.toFixed(2) || 'N/A'})`);
+    
+    const result = await syncConversations(limit, req.user.id);
+    
+    // Record the sync activity
+    recordSync();
+    
+    res.json({ 
+      success: true, 
+      message: `Successfully synced ${result.syncedConversations} conversations with ${result.newMessages} new messages`, 
+      data: result,
+      rateLimitStatus: getRateLimitStatus()
+    });
+  } catch (error) {
+    console.error('Error during conversation syncing:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to sync conversations', 
+      error: error.message 
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
@@ -4039,3 +4153,471 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
+
+// Helper function to sync conversations - only sync existing conversations that have been updated
+const syncConversations = async (limit = DEFAULT_SYNC_LIMIT, userId = null) => {
+  try {
+    // Check if we have an active session
+    const sessionValid = await isSessionValid();
+    
+    if (!sessionValid) {
+      throw new Error('No active LinkedIn session. Please login first.');
+    }
+
+    // Get the user's LinkedIn profile information
+    let linkedinAccountId = null;
+    if (userId) {
+      const userProfile = await dbAll(
+        'SELECT linkedin_profile_url, display_name FROM users WHERE id = ?',
+        [userId]
+      );
+      
+      if (userProfile && userProfile.length > 0) {
+        const profile = userProfile[0];
+        linkedinAccountId = profile.linkedin_profile_url || profile.display_name;
+      }
+    }
+
+    // Get existing conversations for this user
+    let existingConversations = [];
+    if (linkedinAccountId) {
+      existingConversations = await dbAll(
+        'SELECT id, contact_name, last_updated FROM conversations WHERE linkedin_account_id = ? ORDER BY last_updated DESC',
+        [linkedinAccountId]
+      );
+    } else if (userId) {
+      existingConversations = await dbAll(
+        'SELECT id, contact_name, last_updated FROM conversations WHERE user_id = ? ORDER BY last_updated DESC',
+        [userId]
+      );
+    }
+
+    if (existingConversations.length === 0) {
+      return {
+        totalConversations: 0,
+        syncedConversations: 0,
+        conversations: [],
+        errors: [],
+        message: 'No existing conversations found to sync'
+      };
+    }
+
+    // Limit the number of conversations to sync
+    // If limit is 100 or greater, sync all conversations
+    const actualLimit = limit >= 100 ? existingConversations.length : limit;
+    const conversationsToSync = existingConversations.slice(0, Math.min(actualLimit, existingConversations.length));
+    
+    console.log(`Found ${existingConversations.length} existing conversations, syncing ${conversationsToSync.length} with enhanced anti-bot detection...`);
+
+    // Use the existing browser session
+    const { browser, page } = await initializeBrowserSession();
+    const activePage = page;
+    
+    console.log('Starting conversation syncing with enhanced anti-bot detection...');
+    
+    // Navigate to messaging page if not already there
+    const currentUrl = activePage.url();
+    if (!currentUrl.includes('/messaging/')) {
+      console.log('Navigating to LinkedIn messages...');
+      await activePage.goto('https://www.linkedin.com/messaging/', { 
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
+      });
+      await adaptiveDelay(activePage, 2000, 1.2);
+    }
+    
+    // Wait for conversations list to load
+    await enhancedPageInteraction(activePage, async () => {
+      const conversationListSelectors = [
+        '.msg-conversations-container__conversations-list',
+        '.msg-conversations-list',
+        '.conversations-list',
+        '[data-test-conversations-list]',
+        '.msg-conversations-container ul',
+        '.conversations-container ul'
+      ];
+      
+      let conversationListFound = false;
+      for (const selector of conversationListSelectors) {
+        try {
+          await activePage.waitForSelector(selector, { timeout: 5000 });
+          console.log(`Found conversations list using selector: ${selector}`);
+          conversationListFound = true;
+          break;
+        } catch (error) {
+          console.log(`Selector ${selector} not found, trying next...`);
+        }
+      }
+      
+      if (!conversationListFound) {
+        throw new Error('Could not find conversations list with any known selector');
+      }
+    }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
+
+    const syncData = {
+      totalConversations: conversationsToSync.length,
+      syncedConversations: 0,
+      conversations: [],
+      errors: [],
+      newMessages: 0
+    };
+
+    // Sync each conversation
+    for (let i = 0; i < conversationsToSync.length; i++) {
+      try {
+        const conversation = conversationsToSync[i];
+        console.log(`Syncing conversation ${i + 1}/${conversationsToSync.length}: ${conversation.contact_name}`);
+        
+        // Enhanced human-like behavior before starting each conversation
+        await enhancedPageInteraction(activePage, async () => {
+          // Random mouse movement to simulate human behavior
+          const viewport = await activePage.viewport();
+          const randomX = Math.random() * viewport.width;
+          const randomY = Math.random() * viewport.height;
+          
+          await enhancedHumanMouseMove(activePage, randomX, randomY, {
+            speed: 'normal',
+            addJitter: true,
+            addMicroMovements: true,
+            addHesitation: true
+          });
+        }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.0 });
+        
+        // Adaptive delay based on conversation index and complexity
+        const conversationDelay = 2000 + Math.random() * 2000 + (i * 500);
+        await adaptiveDelay(activePage, conversationDelay, 1.1 + (i * 0.1));
+        
+        // Try to find the conversation in the conversation list directly
+        let conversationFound = false;
+        let conversationElement = null;
+        
+        // Wait for conversations list to be fully loaded
+        await enhancedPageInteraction(activePage, async () => {
+          const conversationListSelectors = [
+            '.msg-conversations-container__conversations-list',
+            '.msg-conversations-list',
+            '.conversations-list',
+            '[data-test-conversations-list]',
+            '.msg-conversations-container ul',
+            '.conversations-container ul'
+          ];
+          
+          let conversationListFound = false;
+          for (const selector of conversationListSelectors) {
+            try {
+              await activePage.waitForSelector(selector, { timeout: 5000 });
+              console.log(`Found conversations list using selector: ${selector}`);
+              conversationListFound = true;
+              break;
+            } catch (error) {
+              console.log(`Selector ${selector} not found, trying next...`);
+            }
+          }
+          
+          if (!conversationListFound) {
+            throw new Error('Could not find conversations list with any known selector');
+          }
+        }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
+        
+        // Get all conversation elements using the same selector as sendLinkedInMessage
+        const conversationElements = await activePage.$$('.msg-conversation-listitem');
+        console.log(`Found ${conversationElements.length} conversation elements`);
+        
+        // Enhanced human-like searching behavior (same as sendLinkedInMessage)
+        for (let j = 0; j < conversationElements.length; j++) {
+          const element = conversationElements[j];
+          
+          // Enhanced mouse movements to mimic human scanning
+          await enhancedPageInteraction(activePage, async () => {
+            const conversationBox = await element.boundingBox();
+            if (conversationBox) {
+              const scanX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 50;
+              const scanY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 30;
+              
+              await enhancedHumanMouseMove(activePage, scanX, scanY, {
+                speed: 'slow',
+                addJitter: true,
+                addMicroMovements: true,
+                addHesitation: Math.random() < 0.3
+              });
+            }
+          }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.6 });
+          
+          // Use the exact same selector as sendLinkedInMessage
+          const nameElement = await element.$('.msg-conversation-listitem__participant-names');
+          if (nameElement) {
+            const conversationName = await activePage.evaluate(el => el.textContent.trim(), nameElement);
+            console.log(`Checking conversation: ${conversationName}`);
+            
+            if (conversationName.includes(conversation.contact_name) || conversation.contact_name.includes(conversationName)) {
+              conversationElement = element;
+              conversationFound = true;
+              console.log(`Found target conversation: ${conversationName} (matches ${conversation.contact_name})`);
+              break;
+            }
+          }
+        }
+        
+        // If not found in recent conversations, try enhanced search (same as sendLinkedInMessage)
+        if (!conversationFound) {
+          console.log('Contact not found in recent conversations, trying enhanced search...');
+          
+          const searchBox = await activePage.$('.msg-conversations-container__search-input');
+          if (searchBox) {
+            await enhancedPageInteraction(activePage, async () => {
+              const searchBoxRect = await searchBox.boundingBox();
+              if (searchBoxRect) {
+                const targetX = searchBoxRect.x + searchBoxRect.width / 2 + (Math.random() - 0.5) * 20;
+                const targetY = searchBoxRect.y + searchBoxRect.height / 2 + (Math.random() - 0.5) * 10;
+                
+                await enhancedHumanMouseMove(activePage, targetX, targetY, {
+                  speed: 'normal',
+                  addJitter: true,
+                  addMicroMovements: true,
+                  addHesitation: true
+                });
+                
+                await searchBox.click();
+              } else {
+                await searchBox.click();
+              }
+            }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
+            
+            await adaptiveDelay(activePage, 500 + Math.random() * 500, 0.8);
+            
+            // Enhanced typing with realistic patterns
+            await enhancedPageInteraction(activePage, async () => {
+              await humanType(activePage, '.msg-conversations-container__search-input', conversation.contact_name);
+            }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 1.2 });
+            
+            await adaptiveDelay(activePage, 2000 + Math.random() * 1000, 1.1);
+            
+            // Look for search results
+            const searchResults = await activePage.$$('.msg-conversation-listitem');
+            if (searchResults.length > 0) {
+              conversationElement = searchResults[0];
+              conversationFound = true;
+              console.log(`Found conversation via search: ${conversation.contact_name}`);
+            }
+          }
+        }
+        
+        if (conversationFound && conversationElement) {
+          // Enhanced mouse movement and clicking on the conversation
+          await enhancedPageInteraction(activePage, async () => {
+            const conversationBox = await conversationElement.boundingBox();
+            if (conversationBox) {
+              const targetX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 30;
+              const targetY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 15;
+              
+              await enhancedHumanMouseMove(activePage, targetX, targetY, {
+                speed: 'normal',
+                addJitter: true,
+                addMicroMovements: true,
+                addHesitation: true
+              });
+              
+              await activePage.mouse.click(targetX, targetY);
+            } else {
+              await conversationElement.click();
+            }
+          }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.2 });
+          
+          // Enhanced adaptive delay after clicking conversation
+          const clickDelay = 2500 + Math.random() * 2000 + (Math.random() * 1000);
+          await adaptiveDelay(activePage, clickDelay, 1.3);
+          
+          // Enhanced scrolling to load more messages if needed
+          await enhancedPageInteraction(activePage, async () => {
+            await enhancedHumanScroll(activePage, {
+              direction: 'up',
+              distance: 300 + Math.random() * 200,
+              speed: 'slow',
+              addRandomStops: true,
+              addOverscroll: true
+            });
+          }, { addMouseMovement: false, addScroll: true, complexityMultiplier: 1.1 });
+          
+          // Wait for messages to load with enhanced interaction
+          await enhancedPageInteraction(activePage, async () => {
+            const messageListSelectors = [
+              '.msg-s-message-list',
+              '.msg-conversation-messages',
+              '.messages-list',
+              '.conversation-messages',
+              '[data-test-message-list]',
+              '.msg-s-message-list__container'
+            ];
+            
+            let messageListFound = false;
+            for (const selector of messageListSelectors) {
+              try {
+                await activePage.waitForSelector(selector, { 
+                  timeout: 8000,
+                  visible: true 
+                });
+                console.log(`Found message list using selector: ${selector}`);
+                messageListFound = true;
+                break;
+              } catch (error) {
+                console.log(`Message list selector ${selector} not found, trying next...`);
+              }
+            }
+            
+            if (!messageListFound) {
+              throw new Error('Could not find message list with any known selector');
+            }
+          }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.8 });
+          
+          // Enhanced reading behavior while processing messages
+          await enhancedHumanRead(activePage, {
+            duration: 1500 + Math.random() * 1500,
+            addEyeMovement: true,
+            addScroll: false,
+            complexityMultiplier: 1.0
+          });
+          
+          // Extract new messages with enhanced adaptive behavior
+          const newMessages = await activePage.evaluate((lastUpdated) => {
+            const messageSelectors = [
+              '.msg-s-message-list__event',
+              '.msg-s-message-list__message',
+              '.msg-s-event-listitem',
+              '.msg-s-message-group',
+              '[data-test-message]',
+              '.msg-s-message-list__event-item'
+            ];
+            
+            let messageElements = [];
+            for (const selector of messageSelectors) {
+              messageElements = document.querySelectorAll(selector);
+              if (messageElements.length > 0) {
+                console.log(`Found ${messageElements.length} messages using selector: ${selector}`);
+                break;
+              }
+            }
+            
+            const messages = [];
+            messageElements.forEach((msg, index) => {
+              const messageElement = msg.querySelector('.msg-s-event-listitem__body, .msg-s-message-list__message-content, .msg-s-message-group__message');
+              const senderElement = msg.querySelector('.msg-s-message-group__name, .msg-s-message-list__message-sender');
+              const timeElement = msg.querySelector('.msg-s-message-group__timestamp, .msg-s-message-list__message-time, time');
+              
+              if (messageElement && messageElement.textContent.trim()) {
+                const sender = senderElement ? senderElement.textContent.trim() : 'Unknown';
+                const message = messageElement.textContent.trim();
+                const time = timeElement ? (timeElement.getAttribute('title') || timeElement.getAttribute('datetime') || timeElement.textContent.trim()) : '';
+                
+                // Check if this message is newer than the last sync
+                if (time && new Date(time) > new Date(lastUpdated)) {
+                  messages.push({ sender, message, time, index });
+                }
+              }
+            });
+            
+            return messages;
+          }, conversation.last_updated);
+          
+          if (newMessages.length > 0) {
+            // Enhanced adaptive delay based on number of new messages
+            const messageProcessingDelay = 1000 + (newMessages.length * 200) + Math.random() * 1000;
+            await adaptiveDelay(activePage, messageProcessingDelay, 1.2);
+            
+            // Save new messages to database with enhanced error handling
+            for (const msg of newMessages) {
+              try {
+                await saveMessageToDatabase(
+                  conversation.id, 
+                  msg.sender, 
+                  msg.message, 
+                  msg.time, 
+                  msg.sender === 'You' ? conversation.contact_name : 'You'
+                );
+                
+                // Small delay between saving messages to simulate human behavior
+                if (msg.index % 5 === 0) {
+                  await adaptiveDelay(activePage, 200 + Math.random() * 300, 0.8);
+                }
+              } catch (error) {
+                console.error(`Failed to save message for ${conversation.contact_name}:`, error);
+                syncData.errors.push(`Message save failed for ${conversation.contact_name}: ${error.message}`);
+              }
+            }
+            
+            // Update conversation last_updated timestamp
+            await dbAll(
+              'UPDATE conversations SET last_updated = datetime("now") WHERE id = ?',
+              [conversation.id]
+            );
+            
+            syncData.conversations.push({
+              contactName: conversation.contact_name,
+              newMessages: newMessages.length,
+              lastUpdated: new Date().toISOString()
+            });
+            
+            syncData.syncedConversations++;
+            syncData.newMessages += newMessages.length;
+            
+            console.log(`✅ Synced ${newMessages.length} new messages for ${conversation.contact_name}`);
+          } else {
+            console.log(`ℹ️ No new messages found for ${conversation.contact_name}`);
+            syncData.conversations.push({
+              contactName: conversation.contact_name,
+              newMessages: 0,
+              lastUpdated: conversation.last_updated
+            });
+          }
+        } else {
+          console.log(`⚠️ Conversation ${conversation.contact_name} not found in conversation list or search results`);
+          syncData.errors.push(`Conversation ${conversation.contact_name}: Not found in conversation list or search results (searched ${conversationElements.length} conversations)`);
+        }
+        
+        // Enhanced delay between conversations with adaptive timing
+        await adaptiveDelay(activePage, 3000 + Math.random() * 3000, 1.2);
+        
+        // Enhanced human-like behavior between conversations
+        if (i < conversationsToSync.length - 1) {
+          await enhancedPageInteraction(activePage, async () => {
+            // Random mouse movement to simulate human behavior
+            const viewport = await activePage.viewport();
+            const randomX = Math.random() * viewport.width;
+            const randomY = Math.random() * viewport.height;
+            
+            await enhancedHumanMouseMove(activePage, randomX, randomY, {
+              speed: 'slow',
+              addJitter: true,
+              addMicroMovements: true,
+              addHesitation: true
+            });
+            
+            // Random scroll to simulate human reading behavior
+            if (Math.random() < 0.4) {
+              await enhancedHumanScroll(activePage, {
+                direction: Math.random() > 0.5 ? 'down' : 'up',
+                distance: 100 + Math.random() * 200,
+                speed: 'normal',
+                addRandomStops: true,
+                addOverscroll: false
+              });
+            }
+          }, { addMouseMovement: true, addScroll: true, complexityMultiplier: 1.0 });
+        }
+        
+      } catch (err) {
+        console.error(`⚠️ Failed to sync conversation ${conversationsToSync[i].contact_name}:`, err.message);
+        syncData.errors.push(`Conversation ${conversationsToSync[i].contact_name}: ${err.message}`);
+        
+        // Enhanced adaptive delay after error
+        await adaptiveDelay(activePage, 3000 + Math.random() * 2000, 1.5);
+      }
+    }
+    
+    console.log(`✅ Enhanced syncing completed: ${syncData.syncedConversations}/${syncData.totalConversations} conversations processed, ${syncData.newMessages} new messages found`);
+    return syncData;
+    
+  } catch (error) {
+    console.error('Error in enhanced syncConversations:', error);
+    throw error;
+  }
+};
