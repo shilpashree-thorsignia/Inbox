@@ -6,7 +6,7 @@ const path = require("path");
 puppeteer.use(StealthPlugin());
 
 // SQLite DB setup with new schema
-const db = new sqlite3.Database(path.resolve(__dirname, "linkedin_messages_v3.db"));
+const db = new sqlite3.Database(path.resolve(__dirname, "linkedin_inbox.db"));
 
 // === ENHANCED RANDOMIZED MOUSE/SCROLL EVENTS AND ADAPTIVE DELAY LOGIC ===
 

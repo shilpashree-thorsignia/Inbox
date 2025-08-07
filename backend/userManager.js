@@ -4,7 +4,7 @@ const crypto = require('crypto');
 
 class UserManager {
   constructor() {
-    this.dbPath = path.resolve(__dirname, 'linkedin_messages_v3.db');
+    this.dbPath = path.resolve(__dirname, 'linkedin_inbox.db');
     this.db = new sqlite3.Database(this.dbPath);
     this.initializeUserTables();
     
@@ -33,6 +33,55 @@ class UserManager {
           if (err) {
             console.error('Error creating users table:', err);
             return reject(err);
+          }
+        });
+
+        // Add session_token column if it doesn't exist (migration)
+        this.db.run(`
+          ALTER TABLE users ADD COLUMN session_token TEXT
+        `, (err) => {
+          // Ignore error if column already exists
+          if (err && !err.message.includes('duplicate column name')) {
+            console.error('Error adding session_token to users:', err);
+          }
+        });
+
+        // Add last_login column if it doesn't exist (migration)
+        this.db.run(`
+          ALTER TABLE users ADD COLUMN last_login DATETIME
+        `, (err) => {
+          // Ignore error if column already exists
+          if (err && !err.message.includes('duplicate column name')) {
+            console.error('Error adding last_login to users:', err);
+          }
+        });
+
+        // Add created_at column if it doesn't exist (migration)
+        this.db.run(`
+          ALTER TABLE users ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        `, (err) => {
+          // Ignore error if column already exists
+          if (err && !err.message.includes('duplicate column name')) {
+            console.error('Error adding created_at to users:', err);
+          }
+        });
+
+        // Add is_active column if it doesn't exist (migration)
+        this.db.run(`
+          ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1
+        `, (err) => {
+          // Ignore error if column already exists
+          if (err && !err.message.includes('duplicate column name')) {
+            console.error('Error adding is_active to users:', err);
+          }
+        });
+
+        // Create unique index for session_token if it doesn't exist
+        this.db.run(`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_users_session_token ON users(session_token)
+        `, (err) => {
+          if (err) {
+            console.error('Error creating session_token index:', err);
           }
         });
 

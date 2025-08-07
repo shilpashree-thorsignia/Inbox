@@ -463,7 +463,7 @@ const authenticateUser = async (req, res, next) => {
 app.use(authenticateUser);
 
 // Database connection
-const dbPath = path.resolve(__dirname, 'linkedin_messages_v3.db');
+const dbPath = path.resolve(__dirname, 'linkedin_inbox.db');
 const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
   if (err) {
     console.error('Error connecting to database:', err.message);
@@ -821,20 +821,26 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Get all messages for this conversation
+    // Get all messages for this conversation with proper ordering
     const messages = await dbAll(
       `SELECT id, sender, message, time 
        FROM messages 
        WHERE conversation_id = ? 
-       ORDER BY time, id`,
+       ORDER BY id ASC`,
       [id]
     );
+
+    // Sort messages by ID to maintain the order they were added to the database
+    // This represents the actual chronological order of the conversation
+    const sortedMessages = messages.sort((a, b) => {
+      return a.id - b.id;
+    });
 
     // Format the response
     const response = {
       id: conversation.id,
       contactName: conversation.contactName,
-      messages: messages.map(msg => ({
+      messages: sortedMessages.map(msg => ({
         id: msg.id,
         sender: msg.sender,
         message: msg.message,
@@ -1246,7 +1252,7 @@ const scrapeLinkedInMessages = async (limit) => {
 
 // Add the saveMessages function from scraper.js
 const saveMessages = async (contactName, messages, userId = null, linkedinAccountId = null) => {
-  const dbPath = path.resolve(__dirname, 'linkedin_messages_v3.db');
+  const dbPath = path.resolve(__dirname, 'linkedin_inbox.db');
   const db = new sqlite3.Database(dbPath);
   
   return new Promise((resolve, reject) => {
@@ -2642,25 +2648,31 @@ const sendLinkedInMessage = async (contactName, message) => {
     const conversations = await activePage.$$('.msg-conversation-listitem');
     let targetConversation = null;
     
-    // Enhanced human-like searching behavior
-    for (let i = 0; i < conversations.length; i++) {
+    // Limit the number of conversations to check (2-3 for anti-bot detection)
+    const maxConversationsToCheck = Math.min(3, conversations.length);
+    console.log(`Checking first ${maxConversationsToCheck} conversations out of ${conversations.length} total conversations`);
+    
+    // Enhanced human-like searching behavior (limited to first few conversations)
+    for (let i = 0; i < maxConversationsToCheck; i++) {
       const conversation = conversations[i];
       
-      // Enhanced mouse movements to mimic human scanning
-      await enhancedPageInteraction(activePage, async () => {
-        const conversationBox = await conversation.boundingBox();
-        if (conversationBox) {
-          const scanX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 50;
-          const scanY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 30;
-          
-          await enhancedHumanMouseMove(activePage, scanX, scanY, {
-            speed: 'slow',
-            addJitter: true,
-            addMicroMovements: true,
-            addHesitation: Math.random() < 0.3
-          });
-        }
-      }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.6 });
+      // Only perform enhanced mouse movements for the first 2 conversations to avoid bot detection
+      if (i < 2) {
+        await enhancedPageInteraction(activePage, async () => {
+          const conversationBox = await conversation.boundingBox();
+          if (conversationBox) {
+            const scanX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 50;
+            const scanY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 30;
+            
+            await enhancedHumanMouseMove(activePage, scanX, scanY, {
+              speed: 'slow',
+              addJitter: true,
+              addMicroMovements: true,
+              addHesitation: Math.random() < 0.3
+            });
+          }
+        }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.6 });
+      }
       
       const nameElement = await conversation.$('.msg-conversation-listitem__participant-names');
       if (nameElement) {
@@ -2672,6 +2684,11 @@ const sendLinkedInMessage = async (contactName, message) => {
           console.log(`Found target conversation: ${name}`);
           break;
         }
+      }
+      
+      // Add a small delay between checks (only for first 2 conversations)
+      if (i < 2) {
+        await adaptiveDelay(activePage, 500 + Math.random() * 500, 0.6);
       }
     }
     
@@ -2976,7 +2993,7 @@ const sendLinkedInMessage = async (contactName, message) => {
 // Helper function to save message to database
 const saveMessageToDatabase = async (conversationId, sender, message, time, receiver) => {
   return new Promise((resolve, reject) => {
-    const dbPath = path.resolve(__dirname, 'linkedin_messages_v3.db');
+    const dbPath = path.resolve(__dirname, 'linkedin_inbox.db');
     const writeDb = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
       if (err) {
         console.error('Error opening database for writing:', err.message);
