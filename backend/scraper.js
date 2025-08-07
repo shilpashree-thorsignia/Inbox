@@ -8,6 +8,349 @@ puppeteer.use(StealthPlugin());
 // SQLite DB setup with new schema
 const db = new sqlite3.Database(path.resolve(__dirname, "linkedin_messages_v3.db"));
 
+// === ENHANCED RANDOMIZED MOUSE/SCROLL EVENTS AND ADAPTIVE DELAY LOGIC ===
+
+// Adaptive delay based on page load and content complexity
+const adaptiveDelay = async (page, baseDelay = 1000, complexityMultiplier = 1) => {
+  try {
+    // Check page load status and content complexity
+    const pageMetrics = await page.evaluate(() => {
+      const metrics = {
+        loadTime: performance.timing.loadEventEnd - performance.timing.navigationStart,
+        domElements: document.querySelectorAll('*').length,
+        textContent: document.body.innerText.length,
+        images: document.querySelectorAll('img').length,
+        links: document.querySelectorAll('a').length,
+        isLoaded: document.readyState === 'complete',
+        hasDynamicContent: false,
+        scrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight
+      };
+
+      // Check for dynamic content loading
+      const dynamicSelectors = [
+        '.msg-s-message-list__event',
+        '.msg-conversation-listitem',
+        '.feed-shared-update-v2',
+        '.artdeco-card'
+      ];
+      
+      metrics.hasDynamicContent = dynamicSelectors.some(selector => 
+        document.querySelectorAll(selector).length > 0
+      );
+
+      return metrics;
+    });
+
+    // Calculate adaptive delay based on page complexity
+    let adaptiveDelay = baseDelay;
+    
+    // Adjust based on load time
+    if (pageMetrics.loadTime > 3000) {
+      adaptiveDelay *= 1.5; // Slower for heavy pages
+    } else if (pageMetrics.loadTime < 1000) {
+      adaptiveDelay *= 0.8; // Faster for light pages
+    }
+
+    // Adjust based on content complexity
+    if (pageMetrics.domElements > 1000) {
+      adaptiveDelay *= 1.3;
+    }
+    
+    if (pageMetrics.textContent > 5000) {
+      adaptiveDelay *= 1.2;
+    }
+
+    // Adjust based on dynamic content
+    if (pageMetrics.hasDynamicContent) {
+      adaptiveDelay *= 1.4; // More time for dynamic content to load
+    }
+
+    // Adjust based on scroll complexity
+    if (pageMetrics.scrollHeight > pageMetrics.viewportHeight * 3) {
+      adaptiveDelay *= 1.25; // More content to process
+    }
+
+    // Apply complexity multiplier
+    adaptiveDelay *= complexityMultiplier;
+
+    // Add randomization (±20%)
+    const randomization = 0.8 + (Math.random() * 0.4);
+    adaptiveDelay *= randomization;
+
+    // Ensure minimum delay
+    adaptiveDelay = Math.max(adaptiveDelay, 500);
+
+    console.log(`Adaptive delay: ${Math.round(adaptiveDelay)}ms (base: ${baseDelay}ms, complexity: ${complexityMultiplier})`);
+    
+    return new Promise(resolve => setTimeout(resolve, Math.round(adaptiveDelay)));
+  } catch (error) {
+    console.warn('Error calculating adaptive delay, using base delay:', error.message);
+    return new Promise(resolve => setTimeout(resolve, baseDelay));
+  }
+};
+
+// Enhanced randomized mouse movements with natural patterns
+const enhancedHumanMouseMove = async (page, targetX, targetY, options = {}) => {
+  const {
+    speed = 'normal', // 'slow', 'normal', 'fast'
+    addJitter = true,
+    addMicroMovements = true,
+    addHesitation = true
+  } = options;
+
+  const currentPosition = await page.evaluate(() => {
+    return { x: window.mouseX || 0, y: window.mouseY || 0 };
+  });
+  
+  const startX = currentPosition.x;
+  const startY = currentPosition.y;
+  
+  // Calculate distance for speed adjustment
+  const distance = Math.sqrt(Math.pow(targetX - startX, 2) + Math.pow(targetY - startY, 2));
+  
+  // Adjust steps based on distance and speed
+  let steps;
+  switch (speed) {
+    case 'slow':
+      steps = Math.floor(Math.random() * 20) + 15; // 15-35 steps
+      break;
+    case 'fast':
+      steps = Math.floor(Math.random() * 8) + 5; // 5-13 steps
+      break;
+    default:
+      steps = Math.floor(Math.random() * 15) + 10; // 10-25 steps
+  }
+
+  // Create multiple control points for more natural movement
+  const controlPoints = [];
+  const numControls = Math.floor(Math.random() * 3) + 2; // 2-4 control points
+  
+  for (let i = 0; i < numControls; i++) {
+    const t = (i + 1) / (numControls + 1);
+    const controlX = startX + (targetX - startX) * t + (Math.random() - 0.5) * 150;
+    const controlY = startY + (targetY - startY) * t + (Math.random() - 0.5) * 150;
+    controlPoints.push({ x: controlX, y: controlY });
+  }
+
+  // Generate path using multiple Bezier curves
+  const path = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    
+    // Use multiple control points for more complex movement
+    let currentX = startX;
+    let currentY = startY;
+    
+    if (controlPoints.length === 2) {
+      // Quadratic Bezier curve
+      currentX = Math.pow(1 - t, 2) * startX + 2 * (1 - t) * t * controlPoints[0].x + Math.pow(t, 2) * targetX;
+      currentY = Math.pow(1 - t, 2) * startY + 2 * (1 - t) * t * controlPoints[0].y + Math.pow(t, 2) * targetY;
+    } else {
+      // Cubic Bezier curve with multiple control points
+      const cp1 = controlPoints[0];
+      const cp2 = controlPoints[controlPoints.length - 1];
+      currentX = Math.pow(1 - t, 3) * startX + 3 * Math.pow(1 - t, 2) * t * cp1.x + 3 * (1 - t) * Math.pow(t, 2) * cp2.x + Math.pow(t, 3) * targetX;
+      currentY = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * cp1.y + 3 * (1 - t) * Math.pow(t, 2) * cp2.y + Math.pow(t, 3) * targetY;
+    }
+    
+    path.push({ x: Math.floor(currentX), y: Math.floor(currentY) });
+  }
+
+  // Execute the movement with enhanced realism
+  for (let i = 0; i < path.length; i++) {
+    const point = path[i];
+    let finalX = point.x;
+    let finalY = point.y;
+
+    // Add jitter for more human-like movement
+    if (addJitter) {
+      const jitterX = (Math.random() - 0.5) * 3;
+      const jitterY = (Math.random() - 0.5) * 3;
+      finalX += jitterX;
+      finalY += jitterY;
+    }
+
+    // Add micro-movements
+    if (addMicroMovements && Math.random() < 0.3) {
+      const microX = (Math.random() - 0.5) * 2;
+      const microY = (Math.random() - 0.5) * 2;
+      finalX += microX;
+      finalY += microY;
+    }
+
+    await page.mouse.move(finalX, finalY);
+    
+    // Store current mouse position
+    await page.evaluate((x, y) => {
+      window.mouseX = x;
+      window.mouseY = y;
+    }, finalX, finalY);
+
+    // Variable speed with natural acceleration/deceleration
+    const progress = i / path.length;
+    const speedMultiplier = Math.sin(progress * Math.PI) * 0.5 + 0.5; // Slow at start/end, fast in middle
+    
+    let stepDelay;
+    switch (speed) {
+      case 'slow':
+        stepDelay = (30 + Math.random() * 20) * speedMultiplier;
+        break;
+      case 'fast':
+        stepDelay = (10 + Math.random() * 10) * speedMultiplier;
+        break;
+      default:
+        stepDelay = (20 + Math.random() * 15) * speedMultiplier;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, stepDelay));
+
+    // Add occasional hesitation
+    if (addHesitation && Math.random() < 0.1) {
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 150 + 50));
+    }
+  }
+
+  // Final micro-adjustment to exact target
+  await page.mouse.move(targetX, targetY);
+  await new Promise(resolve => setTimeout(resolve, Math.random() * 100 + 50));
+};
+
+// Enhanced scrolling with natural patterns and adaptive behavior
+const enhancedHumanScroll = async (page, options = {}) => {
+  const {
+    direction = 'down',
+    distance = 300,
+    speed = 'normal',
+    addRandomStops = true,
+    addOverscroll = true
+  } = options;
+
+  const scrollDistance = direction === 'down' ? distance : -distance;
+  
+  // Get page dimensions for adaptive scrolling
+  const pageMetrics = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    viewportHeight: window.innerHeight,
+    currentScroll: window.pageYOffset,
+    contentHeight: document.body.scrollHeight
+  }));
+
+  // Calculate adaptive scroll distance
+  let adaptiveDistance = scrollDistance;
+  if (pageMetrics.scrollHeight > pageMetrics.viewportHeight * 2) {
+    adaptiveDistance *= 1.2; // More content, scroll further
+  }
+
+  // Determine number of scroll steps based on distance and speed
+  let steps;
+  switch (speed) {
+    case 'slow':
+      steps = Math.floor(Math.random() * 8) + 6; // 6-14 steps
+      break;
+    case 'fast':
+      steps = Math.floor(Math.random() * 4) + 2; // 2-6 steps
+      break;
+    default:
+      steps = Math.floor(Math.random() * 6) + 3; // 3-9 steps
+  }
+
+  const stepDistance = adaptiveDistance / steps;
+  let currentScroll = 0;
+
+  for (let i = 0; i < steps; i++) {
+    // Calculate scroll amount for this step
+    let stepAmount = stepDistance;
+    
+    // Add variation to step size
+    const variation = (Math.random() - 0.5) * 0.4; // ±20% variation
+    stepAmount *= (1 + variation);
+
+    // Add overscroll effect
+    if (addOverscroll && Math.random() < 0.3) {
+      stepAmount *= 1.1 + Math.random() * 0.2; // 10-30% overscroll
+    }
+
+    currentScroll += stepAmount;
+
+    // Execute scroll with natural behavior
+    await page.evaluate((scroll) => {
+      window.scrollBy({
+        top: scroll,
+        left: 0,
+        behavior: 'smooth'
+      });
+    }, stepAmount);
+
+    // Adaptive delay between scroll steps
+    const baseDelay = 100 + Math.random() * 200;
+    await adaptiveDelay(page, baseDelay, 0.5);
+
+    // Random stops during scrolling
+    if (addRandomStops && Math.random() < 0.2) {
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 500 + 200));
+    }
+  }
+
+  // Final adjustment scroll
+  const remainingDistance = adaptiveDistance - currentScroll;
+  if (Math.abs(remainingDistance) > 10) {
+    await page.evaluate((scroll) => {
+      window.scrollBy({
+        top: scroll,
+        left: 0,
+        behavior: 'smooth'
+      });
+    }, remainingDistance);
+  }
+};
+
+// Helper function to perform enhanced page interactions (mouse movement, scroll, etc.)
+const enhancedPageInteraction = async (page, action, options = {}) => {
+  const {
+    addMouseMovement = true,
+    addScroll = false,
+    complexityMultiplier = 1
+  } = options;
+
+  try {
+    // Pre-action adaptive delay
+    await adaptiveDelay(page, 1000, complexityMultiplier);
+
+    // Add random mouse movement before action
+    if (addMouseMovement) {
+      const viewport = await page.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight
+      }));
+      
+      const randomX = Math.random() * viewport.width;
+      const randomY = Math.random() * viewport.height;
+      
+      await enhancedHumanMouseMove(page, randomX, randomY, { speed: 'normal' });
+    }
+
+    // Execute the action
+    const result = await action();
+
+    // Post-action adaptive delay
+    await adaptiveDelay(page, 800, complexityMultiplier * 0.8);
+
+    // Add random scroll if requested
+    if (addScroll && Math.random() < 0.3) {
+      await enhancedHumanScroll(page, { 
+        direction: Math.random() > 0.5 ? 'down' : 'up',
+        distance: 100 + Math.random() * 200
+      });
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error in enhanced page interaction:', error);
+    throw error;
+  }
+};
+
 // Initialize database with new schema
 const initDatabase = () => {
   return new Promise((resolve, reject) => {
@@ -98,10 +441,9 @@ const getOrCreateConversation = (contactName) => {
               }
               
               if (!this.lastID) {
-                return reject(new Error('Failed to get last insert ID'));
+                return reject(new Error('Failed to create conversation - no ID returned'));
               }
               
-              console.log(`Created new conversation for ${contactName} with ID ${this.lastID}`);
               resolve(this.lastID);
             }
           );
@@ -180,11 +522,12 @@ const saveMessages = async (contactName, messages) => {
       });
     });
   } catch (error) {
-    console.error('Error in saveMessages:', error);
+    console.error('Error saving messages:', error);
     throw error;
   }
 };
 
+// Legacy delay function (kept for compatibility)
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -208,18 +551,54 @@ function delay(ms) {
     console.log("👉 Please log in manually and then press Enter here.");
     await new Promise(resolve => process.stdin.once("data", resolve));
 
-    await page.goto("https://www.linkedin.com/messaging/");
+    // Enhanced navigation to messaging page
+    console.log("Navigating to LinkedIn messaging with enhanced anti-bot detection...");
+    await enhancedPageInteraction(page, async () => {
+      await page.goto("https://www.linkedin.com/messaging/");
+    }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.2 });
+    
     await page.waitForSelector(".msg-conversations-container__conversations-list");
-    await delay(3000);
+    await adaptiveDelay(page, 3000, 1.1);
 
     const conversations = await page.$$(".msg-conversation-listitem");
     const limit = 2; // Adjust as needed
 
+    console.log(`Found ${conversations.length} conversations, scraping ${Math.min(limit, conversations.length)} with enhanced detection...`);
+
     for (let i = 0; i < Math.min(limit, conversations.length); i++) {
       try {
-        console.log(`🕵️ Scraping conversation ${i + 1}...`);
-        await conversations[i].click();
-        await delay(5000);
+        console.log(`🕵️ Scraping conversation ${i + 1} with enhanced behavior...`);
+        
+        // Enhanced conversation clicking
+        await enhancedPageInteraction(page, async () => {
+          const conversationBox = await conversations[i].boundingBox();
+          if (conversationBox) {
+            const targetX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 20;
+            const targetY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 10;
+            
+            await enhancedHumanMouseMove(page, targetX, targetY, {
+              speed: 'normal',
+              addJitter: true,
+              addMicroMovements: true,
+              addHesitation: true
+            });
+            
+            await page.mouse.click(targetX, targetY);
+          } else {
+            await conversations[i].click();
+          }
+        }, { addMouseMovement: true, addScroll: Math.random() < 0.3, complexityMultiplier: 1.2 });
+        
+        await adaptiveDelay(page, 5000, 1.3);
+
+        // Enhanced scrolling to load more messages
+        await enhancedHumanScroll(page, {
+          direction: 'up',
+          distance: 200 + Math.random() * 300,
+          speed: 'slow',
+          addRandomStops: true,
+          addOverscroll: true
+        });
 
         // Get messages first and extract contact name from them
         const conversationData = await page.evaluate(() => {
@@ -312,13 +691,28 @@ function delay(ms) {
           console.log(`⚠️ Skipping conversation - Contact: ${conversationData.contactName}, Messages: ${conversationData.messages.length}`);
         }
 
-        await delay(2000 + Math.random() * 2000);
+        // Enhanced delay between conversations
+        await adaptiveDelay(page, 2000 + Math.random() * 2000, 1.1);
+        
+        // Random scroll or mouse movement between conversations
+        if (Math.random() < 0.4) {
+          await enhancedHumanScroll(page, {
+            direction: Math.random() > 0.5 ? 'down' : 'up',
+            distance: 100 + Math.random() * 200,
+            speed: 'normal',
+            addRandomStops: true
+          });
+        }
+        
       } catch (err) {
         console.error(`⚠️ Failed to scrape conversation ${i + 1}:`, err.message);
+        
+        // Adaptive delay after error
+        await adaptiveDelay(page, 3000, 1.5);
       }
     }
 
-    console.log("✅ All conversations processed");
+    console.log("✅ Enhanced scraping completed - all conversations processed");
     await browser.close();
     db.close();
   } catch (error) {

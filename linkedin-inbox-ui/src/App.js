@@ -56,7 +56,10 @@ function App() {
   const loadConversations = useCallback(async () => {
     try {
       setIsLoading(true);
+      console.log('Loading conversations...');
       const data = await api.fetchConversations();
+      console.log('Conversations loaded:', data);
+      console.log('Number of conversations:', data.length);
       setConversations(data);
     } catch (err) {
       console.error('Failed to load conversations:', err);
@@ -71,11 +74,23 @@ function App() {
 
   // Handle LinkedIn connection status change
   const handleLinkedInConnectionChange = useCallback((connectionStatus) => {
+    // Handle scrape completion
+    if (connectionStatus.type === 'scrape') {
+      console.log('Scraping completed, refreshing conversations...');
+      loadConversations();
+      return;
+    }
+    
     setLinkedInConnection(connectionStatus);
     
     // If LinkedIn is connected, load conversations
     if (connectionStatus.isConnected && user) {
       loadConversations();
+    } else if (!connectionStatus.isConnected) {
+      // Clear conversations when LinkedIn is disconnected
+      console.log('LinkedIn disconnected, clearing conversations...');
+      setConversations([]);
+      setSelectedConversation(null);
     }
   }, [user, loadConversations]);
 
@@ -165,9 +180,11 @@ function App() {
           {linkedInConnection.isConnected ? (
             <>
               <ConversationList 
+                key={`conversations-${conversations.length}`}
                 conversations={conversations}
                 onSelectConversation={handleSelectConversation}
                 selectedConversationId={selectedConversation?.id}
+                onRefresh={loadConversations}
               />
             </>
           ) : (

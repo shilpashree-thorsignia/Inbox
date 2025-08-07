@@ -1,11 +1,20 @@
 import React from 'react';
 import './ConversationList.css';
 
-const ConversationList = ({ conversations, onSelectConversation, selectedConversationId }) => {
+const ConversationList = ({ conversations, onSelectConversation, selectedConversationId, onRefresh }) => {
   return (
     <div className="conversation-list">
       <div className="conversation-list-header">
         <h2>Conversations</h2>
+        {onRefresh && (
+          <button 
+            className="refresh-button" 
+            onClick={onRefresh}
+            title="Refresh conversations"
+          >
+            🔄
+          </button>
+        )}
       </div>
       <div className="conversation-items">
         {conversations.length > 0 ? (

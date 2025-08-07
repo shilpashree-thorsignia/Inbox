@@ -13,6 +13,432 @@ const PORT = process.env.PORT || 5000;
 // Initialize User Manager
 const userManager = new UserManager();
 
+// === ENHANCED RANDOMIZED MOUSE/SCROLL EVENTS AND ADAPTIVE DELAY LOGIC ===
+
+// Adaptive delay based on page load and content complexity
+const adaptiveDelay = async (page, baseDelay = 1000, complexityMultiplier = 1) => {
+  try {
+    // Check page load status and content complexity
+    const pageMetrics = await page.evaluate(() => {
+      const metrics = {
+        loadTime: performance.timing.loadEventEnd - performance.timing.navigationStart,
+        domElements: document.querySelectorAll('*').length,
+        textContent: document.body.innerText.length,
+        images: document.querySelectorAll('img').length,
+        links: document.querySelectorAll('a').length,
+        isLoaded: document.readyState === 'complete',
+        hasDynamicContent: false,
+        scrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight
+      };
+
+      // Check for dynamic content loading
+      const dynamicSelectors = [
+        '.msg-s-message-list__event',
+        '.msg-conversation-listitem',
+        '.feed-shared-update-v2',
+        '.artdeco-card'
+      ];
+      
+      metrics.hasDynamicContent = dynamicSelectors.some(selector => 
+        document.querySelectorAll(selector).length > 0
+      );
+
+      return metrics;
+    });
+
+    // Calculate adaptive delay based on page complexity
+    let adaptiveDelay = baseDelay;
+    
+    // Adjust based on load time
+    if (pageMetrics.loadTime > 3000) {
+      adaptiveDelay *= 1.5; // Slower for heavy pages
+    } else if (pageMetrics.loadTime < 1000) {
+      adaptiveDelay *= 0.8; // Faster for light pages
+    }
+
+    // Adjust based on content complexity
+    if (pageMetrics.domElements > 1000) {
+      adaptiveDelay *= 1.3;
+    }
+    
+    if (pageMetrics.textContent > 5000) {
+      adaptiveDelay *= 1.2;
+    }
+
+    // Adjust based on dynamic content
+    if (pageMetrics.hasDynamicContent) {
+      adaptiveDelay *= 1.4; // More time for dynamic content to load
+    }
+
+    // Adjust based on scroll complexity
+    if (pageMetrics.scrollHeight > pageMetrics.viewportHeight * 3) {
+      adaptiveDelay *= 1.25; // More content to process
+    }
+
+    // Apply complexity multiplier
+    adaptiveDelay *= complexityMultiplier;
+
+    // Add randomization (±20%)
+    const randomization = 0.8 + (Math.random() * 0.4);
+    adaptiveDelay *= randomization;
+
+    // Ensure minimum delay
+    adaptiveDelay = Math.max(adaptiveDelay, 500);
+
+    console.log(`Adaptive delay: ${Math.round(adaptiveDelay)}ms (base: ${baseDelay}ms, complexity: ${complexityMultiplier})`);
+    
+    return new Promise(resolve => setTimeout(resolve, Math.round(adaptiveDelay)));
+  } catch (error) {
+    console.warn('Error calculating adaptive delay, using base delay:', error.message);
+    return new Promise(resolve => setTimeout(resolve, baseDelay));
+  }
+};
+
+// Enhanced randomized mouse movements with natural patterns
+const enhancedHumanMouseMove = async (page, targetX, targetY, options = {}) => {
+  const {
+    speed = 'normal', // 'slow', 'normal', 'fast'
+    addJitter = true,
+    addMicroMovements = true,
+    addHesitation = true
+  } = options;
+
+  const currentPosition = await page.evaluate(() => {
+    return { x: window.mouseX || 0, y: window.mouseY || 0 };
+  });
+  
+  const startX = currentPosition.x;
+  const startY = currentPosition.y;
+  
+  // Calculate distance for speed adjustment
+  const distance = Math.sqrt(Math.pow(targetX - startX, 2) + Math.pow(targetY - startY, 2));
+  
+  // Adjust steps based on distance and speed
+  let steps;
+  switch (speed) {
+    case 'slow':
+      steps = Math.floor(Math.random() * 20) + 15; // 15-35 steps
+      break;
+    case 'fast':
+      steps = Math.floor(Math.random() * 8) + 5; // 5-13 steps
+      break;
+    default:
+      steps = Math.floor(Math.random() * 15) + 10; // 10-25 steps
+  }
+
+  // Create multiple control points for more natural movement
+  const controlPoints = [];
+  const numControls = Math.floor(Math.random() * 3) + 2; // 2-4 control points
+  
+  for (let i = 0; i < numControls; i++) {
+    const t = (i + 1) / (numControls + 1);
+    const controlX = startX + (targetX - startX) * t + (Math.random() - 0.5) * 150;
+    const controlY = startY + (targetY - startY) * t + (Math.random() - 0.5) * 150;
+    controlPoints.push({ x: controlX, y: controlY });
+  }
+
+  // Generate path using multiple Bezier curves
+  const path = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    
+    // Use multiple control points for more complex movement
+    let currentX = startX;
+    let currentY = startY;
+    
+    if (controlPoints.length === 2) {
+      // Quadratic Bezier curve
+      currentX = Math.pow(1 - t, 2) * startX + 2 * (1 - t) * t * controlPoints[0].x + Math.pow(t, 2) * targetX;
+      currentY = Math.pow(1 - t, 2) * startY + 2 * (1 - t) * t * controlPoints[0].y + Math.pow(t, 2) * targetY;
+    } else {
+      // Cubic Bezier curve with multiple control points
+      const cp1 = controlPoints[0];
+      const cp2 = controlPoints[controlPoints.length - 1];
+      currentX = Math.pow(1 - t, 3) * startX + 3 * Math.pow(1 - t, 2) * t * cp1.x + 3 * (1 - t) * Math.pow(t, 2) * cp2.x + Math.pow(t, 3) * targetX;
+      currentY = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * cp1.y + 3 * (1 - t) * Math.pow(t, 2) * cp2.y + Math.pow(t, 3) * targetY;
+    }
+    
+    path.push({ x: Math.floor(currentX), y: Math.floor(currentY) });
+  }
+
+  // Execute the movement with enhanced realism
+  for (let i = 0; i < path.length; i++) {
+    const point = path[i];
+    let finalX = point.x;
+    let finalY = point.y;
+
+    // Add jitter for more human-like movement
+    if (addJitter) {
+      const jitterX = (Math.random() - 0.5) * 3;
+      const jitterY = (Math.random() - 0.5) * 3;
+      finalX += jitterX;
+      finalY += jitterY;
+    }
+
+    // Add micro-movements
+    if (addMicroMovements && Math.random() < 0.3) {
+      const microX = (Math.random() - 0.5) * 2;
+      const microY = (Math.random() - 0.5) * 2;
+      finalX += microX;
+      finalY += microY;
+    }
+
+    await page.mouse.move(finalX, finalY);
+    
+    // Store current mouse position
+    await page.evaluate((x, y) => {
+      window.mouseX = x;
+      window.mouseY = y;
+    }, finalX, finalY);
+
+    // Variable speed with natural acceleration/deceleration
+    const progress = i / path.length;
+    const speedMultiplier = Math.sin(progress * Math.PI) * 0.5 + 0.5; // Slow at start/end, fast in middle
+    
+    let stepDelay;
+    switch (speed) {
+      case 'slow':
+        stepDelay = (30 + Math.random() * 20) * speedMultiplier;
+        break;
+      case 'fast':
+        stepDelay = (10 + Math.random() * 10) * speedMultiplier;
+        break;
+      default:
+        stepDelay = (20 + Math.random() * 15) * speedMultiplier;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, stepDelay));
+
+    // Add occasional hesitation
+    if (addHesitation && Math.random() < 0.1) {
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 150 + 50));
+    }
+  }
+
+  // Final micro-adjustment to exact target
+  await page.mouse.move(targetX, targetY);
+  await new Promise(resolve => setTimeout(resolve, Math.random() * 100 + 50));
+};
+
+// Enhanced scrolling with natural patterns and adaptive behavior
+const enhancedHumanScroll = async (page, options = {}) => {
+  const {
+    direction = 'down',
+    distance = 300,
+    speed = 'normal',
+    addRandomStops = true,
+    addOverscroll = true
+  } = options;
+
+  const scrollDistance = direction === 'down' ? distance : -distance;
+  
+  // Get page dimensions for adaptive scrolling
+  const pageMetrics = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    viewportHeight: window.innerHeight,
+    currentScroll: window.pageYOffset,
+    contentHeight: document.body.scrollHeight
+  }));
+
+  // Calculate adaptive scroll distance
+  let adaptiveDistance = scrollDistance;
+  if (pageMetrics.scrollHeight > pageMetrics.viewportHeight * 2) {
+    adaptiveDistance *= 1.2; // More content, scroll further
+  }
+
+  // Determine number of scroll steps based on distance and speed
+  let steps;
+  switch (speed) {
+    case 'slow':
+      steps = Math.floor(Math.random() * 8) + 6; // 6-14 steps
+      break;
+    case 'fast':
+      steps = Math.floor(Math.random() * 4) + 2; // 2-6 steps
+      break;
+    default:
+      steps = Math.floor(Math.random() * 6) + 3; // 3-9 steps
+  }
+
+  const stepDistance = adaptiveDistance / steps;
+  let currentScroll = 0;
+
+  for (let i = 0; i < steps; i++) {
+    // Calculate scroll amount for this step
+    let stepAmount = stepDistance;
+    
+    // Add variation to step size
+    const variation = (Math.random() - 0.5) * 0.4; // ±20% variation
+    stepAmount *= (1 + variation);
+
+    // Add overscroll effect
+    if (addOverscroll && Math.random() < 0.3) {
+      stepAmount *= 1.1 + Math.random() * 0.2; // 10-30% overscroll
+    }
+
+    currentScroll += stepAmount;
+
+    // Execute scroll with natural behavior
+    await page.evaluate((scroll) => {
+      window.scrollBy({
+        top: scroll,
+        left: 0,
+        behavior: 'smooth'
+      });
+    }, stepAmount);
+
+    // Adaptive delay between scroll steps
+    const baseDelay = 100 + Math.random() * 200;
+    await adaptiveDelay(page, baseDelay, 0.5);
+
+    // Random stops during scrolling
+    if (addRandomStops && Math.random() < 0.2) {
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 500 + 200));
+    }
+  }
+
+  // Final adjustment scroll
+  const remainingDistance = adaptiveDistance - currentScroll;
+  if (Math.abs(remainingDistance) > 10) {
+    await page.evaluate((scroll) => {
+      window.scrollBy({
+        top: scroll,
+        left: 0,
+        behavior: 'smooth'
+      });
+    }, remainingDistance);
+  }
+};
+
+// Enhanced reading behavior with adaptive timing
+const enhancedHumanRead = async (page, options = {}) => {
+  const {
+    duration = 2000,
+    addEyeMovement = true,
+    addScroll = true,
+    complexityMultiplier = 1
+  } = options;
+
+  const startTime = Date.now();
+  const readingTime = duration * complexityMultiplier;
+
+  // Get content area for reading simulation
+  const contentArea = await page.evaluate(() => {
+    const content = document.querySelector('main, .feed-container, .messaging-conversation-content, body');
+    if (content) {
+      const rect = content.getBoundingClientRect();
+      return {
+        left: rect.left + 50,
+        top: rect.top + 100,
+        width: Math.min(rect.width - 100, 800),
+        height: Math.min(rect.height - 200, 600)
+      };
+    }
+    return null;
+  });
+
+  if (!contentArea) {
+    await adaptiveDelay(page, readingTime, complexityMultiplier);
+    return;
+  }
+
+  let currentLine = 0;
+  const totalLines = Math.floor(contentArea.height / 25);
+
+  while (Date.now() - startTime < readingTime) {
+    if (addEyeMovement) {
+      // Simulate reading line by line with saccadic eye movements
+      const lineY = contentArea.top + (currentLine * 25) + Math.random() * 10;
+      const startX = contentArea.left + Math.random() * 20;
+      const endX = contentArea.left + contentArea.width * (0.7 + Math.random() * 0.2);
+
+      // Reading across the line (left to right)
+      for (let i = 0; i < 5; i++) {
+        const progressX = startX + (endX - startX) * (i / 4);
+        const microY = lineY + (Math.random() - 0.5) * 3;
+        
+        await enhancedHumanMouseMove(page, progressX, microY, { speed: 'slow' });
+        await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 200));
+      }
+    }
+
+    currentLine++;
+    if (currentLine >= totalLines) {
+      currentLine = 0;
+      if (addScroll) {
+        await enhancedHumanScroll(page, { distance: 100 + Math.random() * 100 });
+      }
+      await adaptiveDelay(page, 300 + Math.random() * 500, complexityMultiplier);
+    }
+
+    // Pause between lines
+    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 300));
+
+    // Occasional re-reading or backtracking
+    if (Math.random() < 0.15) {
+      currentLine = Math.max(0, currentLine - 1 - Math.floor(Math.random() * 2));
+      await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 400));
+    }
+
+    // Occasional longer pauses (thinking/processing)
+    if (Math.random() < 0.1) {
+      await adaptiveDelay(page, 800 + Math.random() * 1200, complexityMultiplier);
+    }
+  }
+};
+
+// Enhanced page interaction with adaptive delays
+const enhancedPageInteraction = async (page, action, options = {}) => {
+  const {
+    addMouseMovement = true,
+    addScroll = false,
+    addReading = false,
+    complexityMultiplier = 1
+  } = options;
+
+  try {
+    // Pre-action adaptive delay
+    await adaptiveDelay(page, 1000, complexityMultiplier);
+
+    // Add random mouse movement before action
+    if (addMouseMovement) {
+      const viewport = await page.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight
+      }));
+      
+      const randomX = Math.random() * viewport.width;
+      const randomY = Math.random() * viewport.height;
+      
+      await enhancedHumanMouseMove(page, randomX, randomY, { speed: 'normal' });
+    }
+
+    // Execute the action
+    const result = await action();
+
+    // Post-action adaptive delay
+    await adaptiveDelay(page, 800, complexityMultiplier * 0.8);
+
+    // Add reading behavior if requested
+    if (addReading) {
+      await enhancedHumanRead(page, { duration: 2000 + Math.random() * 3000 });
+    }
+
+    // Add random scroll if requested
+    if (addScroll && Math.random() < 0.3) {
+      await enhancedHumanScroll(page, { 
+        direction: Math.random() > 0.5 ? 'down' : 'up',
+        distance: 100 + Math.random() * 200
+      });
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error in enhanced page interaction:', error);
+    throw error;
+  }
+};
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -148,6 +574,126 @@ app.post('/api/auth/logout', async (req, res) => {
 
 // ===== USER-SPECIFIC API ROUTES =====
 
+// Migration function to handle existing conversations without user_id
+const migrateExistingConversations = async () => {
+  try {
+    console.log('Checking for existing conversations without user_id...');
+    
+    // Get all conversations without user_id
+    const orphanedConversations = await dbAll(
+      'SELECT id, contact_name FROM conversations WHERE user_id IS NULL'
+    );
+    
+    if (orphanedConversations.length > 0) {
+      console.log(`Found ${orphanedConversations.length} conversations without user_id. These will be hidden from new users.`);
+      
+      // Optionally, you could assign them to a default user or delete them
+      // For now, we'll just log them and leave them as is (they won't be visible to any user)
+      
+      orphanedConversations.forEach(conv => {
+        console.log(`  - Conversation ID ${conv.id}: ${conv.contact_name}`);
+      });
+    } else {
+      console.log('No orphaned conversations found.');
+    }
+  } catch (err) {
+    console.error('Error during conversation migration:', err);
+  }
+};
+
+// Migration function to add linkedin_account_id column to conversations table
+const migrateLinkedInAccountId = async () => {
+  try {
+    console.log('Checking for linkedin_account_id column in conversations table...');
+    
+    // Add linkedin_account_id column if it doesn't exist
+    await dbAll(`
+      ALTER TABLE conversations ADD COLUMN linkedin_account_id TEXT
+    `).catch(err => {
+      // Ignore error if column already exists
+      if (!err.message.includes('duplicate column name')) {
+        console.error('Error adding linkedin_account_id to conversations:', err);
+      }
+    });
+    
+    // Create index for linkedin_account_id
+    await dbAll(`
+      CREATE INDEX IF NOT EXISTS idx_conversations_linkedin_account_id ON conversations(linkedin_account_id)
+    `).catch(err => {
+      console.error('Error creating linkedin_account_id index:', err);
+    });
+    
+    // Remove the UNIQUE constraint on contact_name if it exists (to allow same contact name for different LinkedIn accounts)
+    try {
+      // Check if the unique constraint exists
+      const constraints = await dbAll(`
+        SELECT name FROM sqlite_master 
+        WHERE type='index' AND tbl_name='conversations' AND sql LIKE '%UNIQUE%contact_name%'
+      `);
+      
+      if (constraints.length > 0) {
+        console.log('Found UNIQUE constraint on contact_name, removing it...');
+        // Drop the unique index
+        await dbAll(`DROP INDEX IF EXISTS ${constraints[0].name}`);
+        
+        // Recreate the index without UNIQUE constraint
+        await dbAll(`
+          CREATE INDEX IF NOT EXISTS idx_contact_name ON conversations(contact_name)
+        `);
+        
+        console.log('Successfully removed UNIQUE constraint on contact_name');
+      }
+    } catch (err) {
+      console.log('No UNIQUE constraint found on contact_name or error removing it:', err.message);
+    }
+    
+    // Create a composite unique constraint for contact_name + linkedin_account_id (optional)
+    try {
+      await dbAll(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_contact_linkedin 
+        ON conversations(contact_name, linkedin_account_id) 
+        WHERE linkedin_account_id IS NOT NULL
+      `);
+      console.log('Created composite unique index for contact_name + linkedin_account_id');
+    } catch (err) {
+      console.log('Error creating composite unique index:', err.message);
+    }
+    
+    console.log('LinkedIn account ID migration completed.');
+  } catch (err) {
+    console.error('Error during LinkedIn account ID migration:', err);
+  }
+};
+
+// Migration function to clean up existing conversations without linkedin_account_id
+const cleanupOldConversations = async () => {
+  try {
+    console.log('Cleaning up old conversations without linkedin_account_id...');
+    
+    // Get all conversations without linkedin_account_id
+    const oldConversations = await dbAll(
+      'SELECT id, contact_name, user_id FROM conversations WHERE linkedin_account_id IS NULL'
+    );
+    
+    if (oldConversations.length > 0) {
+      console.log(`Found ${oldConversations.length} old conversations without linkedin_account_id. These will be hidden from users.`);
+      
+      // Optionally, you could delete them or mark them as inactive
+      // For now, we'll just log them and leave them as is (they won't be visible to any user)
+      
+      oldConversations.forEach(conv => {
+        console.log(`  - Old Conversation ID ${conv.id}: ${conv.contact_name} (User ID: ${conv.user_id})`);
+      });
+      
+      console.log('Old conversations will not be displayed to users until they are re-scraped with the correct LinkedIn account.');
+    } else {
+      console.log('No old conversations found without linkedin_account_id.');
+    }
+  } catch (err) {
+    console.error('Error during old conversations cleanup:', err);
+  }
+};
+
 // API Routes
 app.get('/api/conversations', async (req, res) => {
   if (!req.user) {
@@ -155,24 +701,66 @@ app.get('/api/conversations', async (req, res) => {
   }
   
   try {
-    const conversations = await dbAll(
-      `SELECT c.id, c.contact_name as contactName, c.last_updated as lastUpdated,
-              (SELECT message FROM messages m 
-               WHERE m.conversation_id = c.id 
-               ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessage,
-              (SELECT time FROM messages m 
-               WHERE m.conversation_id = c.id 
-               ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessageTime,
-              (SELECT sender FROM messages m 
-               WHERE m.conversation_id = c.id 
-               ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessageSender,
-              (SELECT COUNT(*) FROM messages m 
-               WHERE m.conversation_id = c.id) as messageCount
-       FROM conversations c 
-       WHERE c.user_id = ? OR c.user_id IS NULL
-       ORDER BY c.last_updated DESC`,
+    // First, get the user's LinkedIn profile information
+    const userProfile = await dbAll(
+      'SELECT linkedin_profile_url, display_name FROM users WHERE id = ?',
       [req.user.id]
     );
+    
+    if (!userProfile || userProfile.length === 0) {
+      return res.json([]);
+    }
+    
+    const linkedinProfile = userProfile[0];
+    
+    // If no LinkedIn profile is connected, return empty list
+    if (!linkedinProfile.linkedin_profile_url && !linkedinProfile.display_name) {
+      return res.json([]);
+    }
+    
+    // Get conversations based on LinkedIn account (either by profile URL or display name)
+    let conversations;
+    if (linkedinProfile.linkedin_profile_url) {
+      // Use LinkedIn profile URL as the identifier
+      conversations = await dbAll(
+        `SELECT c.id, c.contact_name as contactName, c.last_updated as lastUpdated,
+                (SELECT message FROM messages m 
+                 WHERE m.conversation_id = c.id 
+                 ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessage,
+                (SELECT time FROM messages m 
+                 WHERE m.conversation_id = c.id 
+                 ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessageTime,
+                (SELECT sender FROM messages m 
+                 WHERE m.conversation_id = c.id 
+                 ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessageSender,
+                (SELECT COUNT(*) FROM messages m 
+                 WHERE m.conversation_id = c.id) as messageCount
+         FROM conversations c 
+         WHERE c.linkedin_account_id = ?
+         ORDER BY c.last_updated DESC`,
+        [linkedinProfile.linkedin_profile_url]
+      );
+    } else {
+      // Fallback to display name
+      conversations = await dbAll(
+        `SELECT c.id, c.contact_name as contactName, c.last_updated as lastUpdated,
+                (SELECT message FROM messages m 
+                 WHERE m.conversation_id = c.id 
+                 ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessage,
+                (SELECT time FROM messages m 
+                 WHERE m.conversation_id = c.id 
+                 ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessageTime,
+                (SELECT sender FROM messages m 
+                 WHERE m.conversation_id = c.id 
+                 ORDER BY m.time DESC, m.id DESC LIMIT 1) as lastMessageSender,
+                (SELECT COUNT(*) FROM messages m 
+                 WHERE m.conversation_id = c.id) as messageCount
+         FROM conversations c 
+         WHERE c.linkedin_account_id = ?
+         ORDER BY c.last_updated DESC`,
+        [linkedinProfile.display_name]
+      );
+    }
 
     // Format the response
     const formattedConversations = conversations.map(conv => ({
@@ -186,6 +774,8 @@ app.get('/api/conversations', async (req, res) => {
       messageCount: conv.messageCount
     }));
 
+    console.log(`Returning ${formattedConversations.length} conversations for user ${req.user.id} (LinkedIn: ${linkedinProfile.linkedin_profile_url || linkedinProfile.display_name})`);
+    
     res.json(formattedConversations);
   } catch (err) {
     console.error('Error fetching conversations:', err);
@@ -201,11 +791,31 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // First get the conversation details (ensure it belongs to the user)
-    const [conversation] = await dbAll(
-      'SELECT id, contact_name as contactName FROM conversations WHERE id = ? AND (user_id = ? OR user_id IS NULL)', 
-      [id, req.user.id]
+    // First, get the user's LinkedIn profile information
+    const userProfile = await dbAll(
+      'SELECT linkedin_profile_url, display_name FROM users WHERE id = ?',
+      [req.user.id]
     );
+    
+    if (!userProfile || userProfile.length === 0) {
+      return res.status(404).json({ error: 'User profile not found' });
+    }
+    
+    const linkedinProfile = userProfile[0];
+    
+    // Get the conversation details (ensure it belongs to the user's LinkedIn account)
+    let conversation;
+    if (linkedinProfile.linkedin_profile_url) {
+      [conversation] = await dbAll(
+        'SELECT id, contact_name as contactName FROM conversations WHERE id = ? AND linkedin_account_id = ?', 
+        [id, linkedinProfile.linkedin_profile_url]
+      );
+    } else {
+      [conversation] = await dbAll(
+        'SELECT id, contact_name as contactName FROM conversations WHERE id = ? AND linkedin_account_id = ?', 
+        [id, linkedinProfile.display_name]
+      );
+    }
 
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
@@ -535,7 +1145,7 @@ const scrapeLinkedInMessages = async (limit) => {
 };
 
 // Add the saveMessages function from scraper.js
-const saveMessages = async (contactName, messages, userId = null) => {
+const saveMessages = async (contactName, messages, userId = null, linkedinAccountId = null) => {
   const dbPath = path.resolve(__dirname, 'linkedin_messages_v3.db');
   const db = new sqlite3.Database(dbPath);
   
@@ -544,11 +1154,17 @@ const saveMessages = async (contactName, messages, userId = null) => {
       // Begin transaction
       db.run('BEGIN TRANSACTION');
       
-      // First, get or create conversation (user-specific)
-      const query = userId 
-        ? "SELECT id FROM conversations WHERE contact_name = ? AND (user_id = ? OR user_id IS NULL)"
-        : "SELECT id FROM conversations WHERE contact_name = ?";
-      const params = userId ? [contactName, userId] : [contactName];
+      // First, get or create conversation (LinkedIn account-specific)
+      const query = linkedinAccountId 
+        ? "SELECT id FROM conversations WHERE contact_name = ? AND linkedin_account_id = ?"
+        : userId 
+          ? "SELECT id FROM conversations WHERE contact_name = ? AND user_id = ?"
+          : "SELECT id FROM conversations WHERE contact_name = ? AND linkedin_account_id IS NULL AND user_id IS NULL";
+      const params = linkedinAccountId 
+        ? [contactName, linkedinAccountId]
+        : userId 
+          ? [contactName, userId]
+          : [contactName];
       
       db.get(
         query,
@@ -560,10 +1176,17 @@ const saveMessages = async (contactName, messages, userId = null) => {
           
           if (!conversationId) {
             // Create new conversation
-            const insertQuery = userId 
-              ? "INSERT INTO conversations (contact_name, last_updated, user_id) VALUES (?, datetime('now'), ?)"
-              : "INSERT INTO conversations (contact_name, last_updated) VALUES (?, datetime('now'))";
-            const insertParams = userId ? [contactName, userId] : [contactName];
+            let insertQuery, insertParams;
+            if (linkedinAccountId) {
+              insertQuery = "INSERT INTO conversations (contact_name, last_updated, linkedin_account_id) VALUES (?, datetime('now'), ?)";
+              insertParams = [contactName, linkedinAccountId];
+            } else if (userId) {
+              insertQuery = "INSERT INTO conversations (contact_name, last_updated, user_id) VALUES (?, datetime('now'), ?)";
+              insertParams = [contactName, userId];
+            } else {
+              insertQuery = "INSERT INTO conversations (contact_name, last_updated) VALUES (?, datetime('now'))";
+              insertParams = [contactName];
+            }
             
             db.run(
               insertQuery,
@@ -842,16 +1465,8 @@ const humanRead = async (page, baseDuration = 2000) => {
     
     // Occasional longer pauses (thinking/processing)
     if (Math.random() < 0.1) {
-      await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 1200));
+      await adaptiveDelay(page, 800 + Math.random() * 1200, complexityMultiplier);
     }
-  }
-  
-  // Final micro-movements to simulate finishing reading
-  for (let i = 0; i < 3; i++) {
-    const finalX = contentArea.left + Math.random() * contentArea.width;
-    const finalY = contentArea.top + Math.random() * contentArea.height;
-    await humanMouseMove(page, finalX, finalY);
-    await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300));
   }
 };
 
@@ -1668,7 +2283,7 @@ const sendLinkedInMessage = async (contactName, message) => {
     
     // Get current behavior pattern based on time of day
     const behaviorPattern = getBehaviorPattern();
-    console.log(`Using behavior pattern for current time: ${JSON.stringify(behaviorPattern)}`);
+    console.log(`Using enhanced behavior pattern for current time: ${JSON.stringify(behaviorPattern)}`);
     
     // Check if we need to refresh the session
     const sessionValid = await isSessionValid();
@@ -1694,13 +2309,27 @@ const sendLinkedInMessage = async (contactName, message) => {
     // Use the persistent page (stealth measures already applied during initialization)
     const activePage = page;
     
-    // Simulate human behavior before starting
-    console.log('Simulating human behavior before navigation...');
-    await humanMouseMove(activePage, Math.random() * 1366, Math.random() * 768);
-    await humanDelay(1000, 2000);
+    // Enhanced human behavior simulation before starting
+    console.log('Simulating enhanced human behavior before navigation...');
+    await enhancedPageInteraction(activePage, async () => {
+      const viewport = await activePage.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight
+      }));
+      
+      const randomX = Math.random() * viewport.width;
+      const randomY = Math.random() * viewport.height;
+      
+      await enhancedHumanMouseMove(activePage, randomX, randomY, { 
+        speed: 'normal',
+        addJitter: true,
+        addMicroMovements: true,
+        addHesitation: true
+      });
+    }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
     
-    // Navigate to LinkedIn messages with human-like behavior
-    console.log('Navigating to LinkedIn...');
+    // Navigate to LinkedIn messages with enhanced human-like behavior
+    console.log('Navigating to LinkedIn with enhanced anti-bot detection...');
     
     // Check current URL to see if we're already on LinkedIn
     const currentUrl = activePage.url();
@@ -1708,55 +2337,90 @@ const sendLinkedInMessage = async (contactName, message) => {
     if (!currentUrl.includes('linkedin.com')) {
       // First visit LinkedIn homepage to seem more natural
       console.log('Visiting LinkedIn homepage first...');
-      await activePage.goto('https://www.linkedin.com/', { 
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
+      await enhancedPageInteraction(activePage, async () => {
+        await activePage.goto('https://www.linkedin.com/', { 
+          waitUntil: 'domcontentloaded',
+          timeout: 60000
+        });
+      }, { addMouseMovement: true, addScroll: true, complexityMultiplier: 1.3 });
+      
+      // Enhanced reading and scrolling behavior
+      await enhancedHumanRead(activePage, { 
+        duration: 3000 + Math.random() * 2000,
+        addEyeMovement: true,
+        addScroll: true,
+        complexityMultiplier: 1.2
       });
-      await humanDelay(2000, 4000);
       
-      // Simulate realistic homepage browsing behavior
-      await humanRead(activePage, 3000); // Simulate reading the page
-      await humanScroll(activePage, 'down', 200); // Light scrolling
-      await humanDelay(1500, 3000);
-      
-      // Move mouse around naturally
-      await humanMouseMove(activePage, Math.random() * 800 + 200, Math.random() * 400 + 200);
-      await humanDelay(1000, 2000);
+      // Enhanced scrolling
+      await enhancedHumanScroll(activePage, {
+        direction: 'down',
+        distance: 200 + Math.random() * 300,
+        speed: 'slow',
+        addRandomStops: true,
+        addOverscroll: true
+      });
     }
     
     // Navigate to messages if not already there
     if (!currentUrl.includes('/messaging/')) {
-      console.log('Navigating to LinkedIn messages...');
+      console.log('Navigating to LinkedIn messages with enhanced behavior...');
       
       // Try clicking the messaging icon first (more natural)
       try {
         const messagingIcon = await activePage.$('a[href*="messaging"]');
         if (messagingIcon) {
-          console.log('Clicking messaging icon...');
-          await humanMouseMove(activePage, 0, 0); // Move to icon position
-          await messagingIcon.click();
-          await humanDelay(2000, 4000);
+          console.log('Clicking messaging icon with enhanced mouse movement...');
+          const iconBox = await messagingIcon.boundingBox();
+          if (iconBox) {
+            const targetX = iconBox.x + iconBox.width / 2 + (Math.random() - 0.5) * 20;
+            const targetY = iconBox.y + iconBox.height / 2 + (Math.random() - 0.5) * 10;
+            
+            await enhancedHumanMouseMove(activePage, targetX, targetY, {
+              speed: 'normal',
+              addJitter: true,
+              addMicroMovements: true,
+              addHesitation: true
+            });
+            
+            await activePage.mouse.click(targetX, targetY);
+          } else {
+            await messagingIcon.click();
+          }
+          await adaptiveDelay(activePage, 2000 + Math.random() * 2000, 1.2);
         } else {
           throw new Error('Messaging icon not found');
         }
       } catch (error) {
         console.log('Direct navigation to messaging page...');
-        await activePage.goto('https://www.linkedin.com/messaging/', { 
-          waitUntil: 'domcontentloaded',
-          timeout: 60000
-        });
+        await enhancedPageInteraction(activePage, async () => {
+          await activePage.goto('https://www.linkedin.com/messaging/', { 
+            waitUntil: 'domcontentloaded',
+            timeout: 60000
+          });
+        }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
       }
       
-      await humanDelay(3000, 5000);
+      await adaptiveDelay(activePage, 3000 + Math.random() * 2000, 1.3);
       
-      // Simulate reading the messages page
-      await humanRead(activePage, 2000);
+      // Enhanced reading simulation
+      await enhancedHumanRead(activePage, { 
+        duration: 2000 + Math.random() * 1500,
+        addEyeMovement: true,
+        addScroll: false,
+        complexityMultiplier: 1.1
+      });
     } else {
       console.log('Already on LinkedIn messages page');
-      await humanDelay(1000, 2000);
+      await adaptiveDelay(activePage, 1000 + Math.random() * 1000, 0.8);
       
       // Still simulate some reading behavior
-      await humanRead(activePage, 1500);
+      await enhancedHumanRead(activePage, { 
+        duration: 1500 + Math.random() * 1000,
+        addEyeMovement: true,
+        addScroll: false,
+        complexityMultiplier: 0.9
+      });
     }
     
     // Check if we need to login
@@ -1771,7 +2435,7 @@ const sendLinkedInMessage = async (contactName, message) => {
         await activePage.waitForSelector('.msg-conversations-container__conversations-list', { timeout: 180000 });
         console.log('Login detected, continuing...');
         isLoggedIn = true;
-        await humanDelay(2000, 4000);
+        await adaptiveDelay(activePage, 2000 + Math.random() * 2000, 1.2);
       } catch (error) {
         throw new Error('Login timeout - please ensure you are logged into LinkedIn');
       }
@@ -1782,24 +2446,50 @@ const sendLinkedInMessage = async (contactName, message) => {
     
     console.log('Looking for conversation with:', contactName);
     
-    // Add some random mouse movements to appear more human
-    await activePage.mouse.move(Math.random() * 400 + 100, Math.random() * 300 + 100);
-    await humanDelay(1000, 2000);
+    // Enhanced random mouse movements to appear more human
+    await enhancedPageInteraction(activePage, async () => {
+      const viewport = await activePage.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight
+      }));
+      
+      const randomX = Math.random() * viewport.width * 0.8 + viewport.width * 0.1;
+      const randomY = Math.random() * viewport.height * 0.8 + viewport.height * 0.1;
+      
+      await enhancedHumanMouseMove(activePage, randomX, randomY, {
+        speed: 'normal',
+        addJitter: true,
+        addMicroMovements: true,
+        addHesitation: true
+      });
+    }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.8 });
     
-    // Search for the contact in conversations with human-like behavior
-    console.log('Searching through conversations...');
-    await humanDelay(1000, 2000);
+    // Enhanced search for the contact in conversations
+    console.log('Searching through conversations with enhanced behavior...');
+    await adaptiveDelay(activePage, 1000 + Math.random() * 1000, 1.0);
     
     const conversations = await activePage.$$('.msg-conversation-listitem');
     let targetConversation = null;
     
-    // Simulate human-like searching behavior
+    // Enhanced human-like searching behavior
     for (let i = 0; i < conversations.length; i++) {
       const conversation = conversations[i];
       
-      // Add small delays and mouse movements to mimic human scanning
-      await activePage.mouse.move(Math.random() * 100 + 300, Math.random() * 50 + 200 + (i * 60));
-      await humanDelay(200, 500);
+      // Enhanced mouse movements to mimic human scanning
+      await enhancedPageInteraction(activePage, async () => {
+        const conversationBox = await conversation.boundingBox();
+        if (conversationBox) {
+          const scanX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 50;
+          const scanY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 30;
+          
+          await enhancedHumanMouseMove(activePage, scanX, scanY, {
+            speed: 'slow',
+            addJitter: true,
+            addMicroMovements: true,
+            addHesitation: Math.random() < 0.3
+          });
+        }
+      }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.6 });
       
       const nameElement = await conversation.$('.msg-conversation-listitem__participant-names');
       if (nameElement) {
@@ -1815,15 +2505,38 @@ const sendLinkedInMessage = async (contactName, message) => {
     }
     
     if (!targetConversation) {
-      // Try to search for the contact if not found in recent conversations
-      console.log('Contact not found in recent conversations, trying search...');
+      // Enhanced search for the contact if not found in recent conversations
+      console.log('Contact not found in recent conversations, trying enhanced search...');
       
       const searchBox = await activePage.$('.msg-conversations-container__search-input');
       if (searchBox) {
-        await searchBox.click();
-        await humanDelay(500, 1000);
-        await humanType(activePage, '.msg-conversations-container__search-input', contactName);
-        await humanDelay(2000, 3000);
+        await enhancedPageInteraction(activePage, async () => {
+          const searchBoxRect = await searchBox.boundingBox();
+          if (searchBoxRect) {
+            const targetX = searchBoxRect.x + searchBoxRect.width / 2 + (Math.random() - 0.5) * 20;
+            const targetY = searchBoxRect.y + searchBoxRect.height / 2 + (Math.random() - 0.5) * 10;
+            
+            await enhancedHumanMouseMove(activePage, targetX, targetY, {
+              speed: 'normal',
+              addJitter: true,
+              addMicroMovements: true,
+              addHesitation: true
+            });
+            
+            await searchBox.click();
+          } else {
+            await searchBox.click();
+          }
+        }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
+        
+        await adaptiveDelay(activePage, 500 + Math.random() * 500, 0.8);
+        
+        // Enhanced typing with realistic patterns
+        await enhancedPageInteraction(activePage, async () => {
+          await humanType(activePage, '.msg-conversations-container__search-input', contactName);
+        }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 1.2 });
+        
+        await adaptiveDelay(activePage, 2000 + Math.random() * 1000, 1.1);
         
         // Look for search results
         const searchResults = await activePage.$$('.msg-conversation-listitem');
@@ -1833,21 +2546,37 @@ const sendLinkedInMessage = async (contactName, message) => {
       }
       
       if (!targetConversation) {
-        throw new Error(`Conversation with ${contactName} not found even after search`);
+        throw new Error(`Conversation with ${contactName} not found even after enhanced search`);
       }
     }
     
-    // Click on the conversation with human-like behavior
-    console.log('Opening conversation...');
-    await activePage.mouse.move(Math.random() * 50 + 250, Math.random() * 20 + 200);
-    await humanDelay(500, 1000);
-    await targetConversation.click();
-    await humanDelay(2000, 4000);
+    // Enhanced clicking on the conversation
+    console.log('Opening conversation with enhanced behavior...');
+    await enhancedPageInteraction(activePage, async () => {
+      const conversationBox = await targetConversation.boundingBox();
+      if (conversationBox) {
+        const targetX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 30;
+        const targetY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 15;
+        
+        await enhancedHumanMouseMove(activePage, targetX, targetY, {
+          speed: 'normal',
+          addJitter: true,
+          addMicroMovements: true,
+          addHesitation: true
+        });
+        
+        await activePage.mouse.click(targetX, targetY);
+      } else {
+        await targetConversation.click();
+      }
+    }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.2 });
+    
+    await adaptiveDelay(activePage, 2000 + Math.random() * 2000, 1.3);
     
     // Wait for the conversation to load and find the message input
-    console.log('Waiting for message input to load...');
+    console.log('Waiting for message input to load with enhanced detection...');
     
-    // Try multiple input selectors
+    // Try multiple input selectors with enhanced interaction
     const inputSelectors = [
       '.msg-form__contenteditable',
       '.msg-form__textarea',
@@ -1880,31 +2609,45 @@ const sendLinkedInMessage = async (contactName, message) => {
       throw new Error('Could not find message input field');
     }
     
-    // Simulate human-like typing behavior
-    console.log('Typing message...');
-    const inputBox = await messageInput.boundingBox();
-    if (inputBox) {
-      await activePage.mouse.move(
-        inputBox.x + inputBox.width / 2 + Math.random() * 20 - 10,
-        inputBox.y + inputBox.height / 2 + Math.random() * 10 - 5
-      );
-    }
-    await humanDelay(500, 1000);
+    // Enhanced human-like typing behavior
+    console.log('Typing message with enhanced human simulation...');
+    await enhancedPageInteraction(activePage, async () => {
+      const inputBox = await messageInput.boundingBox();
+      if (inputBox) {
+        const targetX = inputBox.x + inputBox.width / 2 + (Math.random() - 0.5) * 40;
+        const targetY = inputBox.y + inputBox.height / 2 + (Math.random() - 0.5) * 20;
+        
+        await enhancedHumanMouseMove(activePage, targetX, targetY, {
+          speed: 'normal',
+          addJitter: true,
+          addMicroMovements: true,
+          addHesitation: true
+        });
+        
+        await activePage.mouse.click(targetX, targetY);
+      } else {
+        await messageInput.click();
+      }
+    }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
     
-    // Use the human typing function with the found selector
-    await humanType(activePage, inputSelector, message);
-    await humanDelay(1000, 2000);
+    await adaptiveDelay(activePage, 500 + Math.random() * 500, 0.8);
     
-    // Send the message with human-like behavior
-    console.log('Sending message...');
+    // Enhanced typing with realistic patterns
+    await enhancedPageInteraction(activePage, async () => {
+      await humanType(activePage, inputSelector, message);
+    }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 1.3 });
+    
+    await adaptiveDelay(activePage, 1000 + Math.random() * 1000, 1.1);
+    
+    // Enhanced sending with human-like behavior
+    console.log('Sending message with enhanced anti-bot detection...');
     
     // Try multiple send button selectors (LinkedIn UI changes frequently)
-    // NOTE: .msg-form__send-toggle is the 3-dots toggle button, NOT the send button
     const sendButtonSelectors = [
-      'button[aria-label="Send"]', // Short aria label
-      'button[data-control-name="send_message"]', // Primary send button selector
-      'button[aria-label="Send message"]', // Full aria label
-      '.msg-form__send-button:not([disabled])', // Send button class
+      'button[aria-label="Send"]',
+      'button[data-control-name="send_message"]',
+      'button[aria-label="Send message"]',
+      '.msg-form__send-button:not([disabled])',
       'button[data-control-name="send"]',
       'button[aria-label*="Send"]',
       '.msg-form__send-btn:not([disabled])',
@@ -1936,22 +2679,31 @@ const sendLinkedInMessage = async (contactName, message) => {
     }
     
     if (sendButton && usedSelector) {
-      // Move mouse to send button with human-like behavior
-      const buttonBox = await sendButton.boundingBox();
-      if (buttonBox) {
-        await humanMouseMove(activePage, 
-          buttonBox.x + buttonBox.width / 2 + Math.random() * 10 - 5,
-          buttonBox.y + buttonBox.height / 2 + Math.random() * 10 - 5
-        );
-      }
-      await humanDelay(500, 1000);
+      // Enhanced mouse movement to send button
+      await enhancedPageInteraction(activePage, async () => {
+        const buttonBox = await sendButton.boundingBox();
+        if (buttonBox) {
+          const targetX = buttonBox.x + buttonBox.width / 2 + (Math.random() - 0.5) * 20;
+          const targetY = buttonBox.y + buttonBox.height / 2 + (Math.random() - 0.5) * 20;
+          
+          await enhancedHumanMouseMove(activePage, targetX, targetY, {
+            speed: 'normal',
+            addJitter: true,
+            addMicroMovements: true,
+            addHesitation: true
+          });
+          
+          await activePage.mouse.click(targetX, targetY);
+        } else {
+          await sendButton.click();
+        }
+      }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.2 });
       
-      await sendButton.click();
-      await humanDelay(2000, 4000);
+      await adaptiveDelay(activePage, 2000 + Math.random() * 2000, 1.3);
     }
     
-    // Verify message was sent by checking multiple indicators
-    await humanDelay(1000, 2000); // Wait a bit more for UI to update
+    // Enhanced verification with adaptive delays
+    await adaptiveDelay(activePage, 1000 + Math.random() * 1000, 1.0);
     
     let messageSent = false;
     
@@ -1969,7 +2721,7 @@ const sendLinkedInMessage = async (contactName, message) => {
       console.log('Could not check input content:', err.message);
     }
     
-    // Method 2: Check for send button state change (if we used a button)
+    // Method 2: Check for send button state change
     if (!messageSent && sendButton && usedSelector) {
       try {
         const buttonStillExists = await activePage.$(usedSelector);
@@ -1985,15 +2737,15 @@ const sendLinkedInMessage = async (contactName, message) => {
       }
     }
     
-    // Method 3: Check for message in conversation (more reliable but slower)
+    // Method 3: Enhanced check for message in conversation
     if (!messageSent) {
       try {
-        await humanDelay(2000, 3000); // Wait for message to appear
+        await adaptiveDelay(activePage, 2000 + Math.random() * 1000, 1.1);
         const messageElements = await activePage.$$('.msg-s-message-list__event');
         
         if (messageElements.length > 0) {
           // Check if our message appears in the last few messages
-          const lastMessages = messageElements.slice(-3); // Check last 3 messages
+          const lastMessages = messageElements.slice(-3);
           
           for (const msgEl of lastMessages) {
             try {
@@ -2014,13 +2766,13 @@ const sendLinkedInMessage = async (contactName, message) => {
     }
     
     if (messageSent) {
-      console.log(`✅ Message sent successfully to ${contactName}: ${message}`);
+      console.log(`✅ Enhanced message sent successfully to ${contactName}: ${message}`);
       
       // Record message for rate limiting
       recordMessageSent();
       console.log(`Message recorded. Total messages in history: ${messageHistory.length}`);
       
-      return { success: true, message: 'Message sent successfully' };
+      return { success: true, message: 'Message sent successfully with enhanced anti-bot detection' };
     } else {
       console.log('⚠️ Could not verify message was sent, but no critical errors occurred');
       
@@ -2029,13 +2781,13 @@ const sendLinkedInMessage = async (contactName, message) => {
       
       return { 
         success: true, 
-        message: 'Message likely sent (verification inconclusive)', 
+        message: 'Message likely sent (verification inconclusive) with enhanced detection', 
         warning: 'Could not definitively verify message delivery'
       };
     }
     
   } catch (error) {
-    console.error('Error sending LinkedIn message:', error);
+    console.error('Error sending LinkedIn message with enhanced detection:', error);
     
     // If there's a critical error, we might need to reset the session
     if (error.message.includes('Target closed') || error.message.includes('Session closed')) {
@@ -2450,11 +3202,25 @@ const scrapeConversations = async (limit = 5, userId = null) => {
       throw new Error('No active LinkedIn session. Please login first.');
     }
 
+    // Get the user's LinkedIn profile information
+    let linkedinAccountId = null;
+    if (userId) {
+      const userProfile = await dbAll(
+        'SELECT linkedin_profile_url, display_name FROM users WHERE id = ?',
+        [userId]
+      );
+      
+      if (userProfile && userProfile.length > 0) {
+        const profile = userProfile[0];
+        linkedinAccountId = profile.linkedin_profile_url || profile.display_name;
+      }
+    }
+
     // Use the existing browser session
     const { browser, page } = await initializeBrowserSession();
     const activePage = page;
     
-    console.log('Starting conversation scraping...');
+    console.log('Starting conversation scraping with enhanced anti-bot detection...');
     
     // Navigate to messaging page if not already there
     const currentUrl = activePage.url();
@@ -2464,18 +3230,65 @@ const scrapeConversations = async (limit = 5, userId = null) => {
         waitUntil: 'domcontentloaded',
         timeout: 60000
       });
-      await smartHumanDelay(0.5);
+      // Use adaptive delay based on page load
+      await adaptiveDelay(activePage, 2000, 1.2);
     }
     
-    // Wait for conversations list to load
-    await activePage.waitForSelector('.msg-conversations-container__conversations-list', { timeout: 15000 });
-    await smartHumanDelay(0.5);
+    // Wait for conversations list to load with enhanced interaction
+    await enhancedPageInteraction(activePage, async () => {
+      // Try multiple selectors for conversations list (LinkedIn updates their DOM frequently)
+      const conversationListSelectors = [
+        '.msg-conversations-container__conversations-list',
+        '.msg-conversations-list',
+        '.conversations-list',
+        '[data-test-conversations-list]',
+        '.msg-conversations-container ul',
+        '.conversations-container ul'
+      ];
+      
+      let conversationListFound = false;
+      for (const selector of conversationListSelectors) {
+        try {
+          await activePage.waitForSelector(selector, { timeout: 5000 });
+          console.log(`Found conversations list using selector: ${selector}`);
+          conversationListFound = true;
+          break;
+        } catch (error) {
+          console.log(`Selector ${selector} not found, trying next...`);
+        }
+      }
+      
+      if (!conversationListFound) {
+        throw new Error('Could not find conversations list with any known selector');
+      }
+    }, { addMouseMovement: true, addScroll: false, complexityMultiplier: 1.1 });
     
-    // Get all conversation elements
-    const conversations = await activePage.$$('.msg-conversation-listitem');
+    // Get all conversation elements with multiple selector attempts
+    let conversations = [];
+    const conversationItemSelectors = [
+      '.msg-conversation-listitem',
+      '.msg-conversations-list li',
+      '.conversation-list-item',
+      '[data-test-conversation-item]',
+      '.msg-conversations-container__conversations-list li',
+      '.conversations-list li'
+    ];
+    
+    for (const selector of conversationItemSelectors) {
+      conversations = await activePage.$$(selector);
+      if (conversations.length > 0) {
+        console.log(`Found ${conversations.length} conversations using selector: ${selector}`);
+        break;
+      }
+    }
+    
+    if (conversations.length === 0) {
+      throw new Error('No conversations found. Please ensure you have conversations in your inbox.');
+    }
+    
     const actualLimit = Math.min(limit, conversations.length);
     
-    console.log(`Found ${conversations.length} conversations, scraping ${actualLimit}...`);
+    console.log(`Found ${conversations.length} conversations, scraping ${actualLimit} with enhanced anti-bot detection...`);
     
     const scrapedData = {
       totalConversations: conversations.length,
@@ -2486,48 +3299,287 @@ const scrapeConversations = async (limit = 5, userId = null) => {
     
     for (let i = 0; i < actualLimit; i++) {
       try {
-        console.log(`Scraping conversation ${i + 1}/${actualLimit}...`);
+        console.log(`Scraping conversation ${i + 1}/${actualLimit} with enhanced behavior...`);
         
-        // Click on conversation with human-like behavior
-        await humanMouseMove(activePage, 0, 0);
-        await conversations[i].click();
-        await smartHumanDelay(1);
+        // Get contact name from conversation list item before clicking
+        const contactNameFromList = await activePage.evaluate((index) => {
+          const conversationItemSelectors = [
+            '.msg-conversation-listitem',
+            '.msg-conversations-list li',
+            '.conversation-list-item',
+            '[data-test-conversation-item]',
+            '.msg-conversations-container__conversations-list li',
+            '.conversations-list li'
+          ];
+          
+          let conversationItems = [];
+          for (const selector of conversationItemSelectors) {
+            conversationItems = document.querySelectorAll(selector);
+            if (conversationItems.length > 0) {
+              break;
+            }
+          }
+          
+          if (conversationItems[index]) {
+            const nameSelectors = [
+              '.msg-conversation-listitem__participant-name',
+              '.msg-conversation-listitem__participant-name-text',
+              '.msg-conversation-listitem__name',
+              '.msg-conversation-listitem__title',
+              '[data-test-conversation-name]',
+              '.msg-conversation-listitem__participant-name-text',
+              '.conversation-name',
+              '.participant-name',
+              '.contact-name',
+              'h3',
+              'h4',
+              '.name',
+              '.title'
+            ];
+            
+            for (const selector of nameSelectors) {
+              const nameElement = conversationItems[index].querySelector(selector);
+              if (nameElement && nameElement.textContent.trim()) {
+                const name = nameElement.textContent.trim();
+                // Filter out common placeholder names
+                if (name && name.toLowerCase() !== 'messaging' && name.toLowerCase() !== 'unknown' && name.length > 1) {
+                  return name;
+                }
+              }
+            }
+          }
+          return null;
+        }, i);
         
-        // Extract conversation data
+        if (contactNameFromList) {
+          console.log(`Found contact name from list item: ${contactNameFromList}`);
+        }
+        
+        // Enhanced conversation clicking with randomized mouse movements
+        await enhancedPageInteraction(activePage, async () => {
+          // Get conversation element position for precise clicking
+          const conversationBox = await conversations[i].boundingBox();
+          if (conversationBox) {
+            const targetX = conversationBox.x + conversationBox.width / 2 + (Math.random() - 0.5) * 20;
+            const targetY = conversationBox.y + conversationBox.height / 2 + (Math.random() - 0.5) * 10;
+            
+            // Enhanced mouse movement to conversation
+            await enhancedHumanMouseMove(activePage, targetX, targetY, {
+              speed: 'normal',
+              addJitter: true,
+              addMicroMovements: true,
+              addHesitation: true
+            });
+            
+            // Click with slight delay
+            await activePage.mouse.click(targetX, targetY);
+          } else {
+            // Fallback to direct click
+            await conversations[i].click();
+          }
+        }, { 
+          addMouseMovement: true, 
+          addScroll: Math.random() < 0.3, // 30% chance to add scroll
+          complexityMultiplier: 1.2 
+        });
+        
+        // Wait for messages to load with adaptive delay
+        await enhancedPageInteraction(activePage, async () => {
+          // Try multiple selectors for message list (LinkedIn updates their DOM frequently)
+          const messageListSelectors = [
+            '.msg-s-message-list',
+            '.msg-conversation-messages',
+            '.messages-list',
+            '.conversation-messages',
+            '[data-test-message-list]',
+            '.msg-s-message-list__container'
+          ];
+          
+          let messageListFound = false;
+          for (const selector of messageListSelectors) {
+            try {
+              await activePage.waitForSelector(selector, { 
+                timeout: 5000,
+                visible: true 
+              });
+              console.log(`Found message list using selector: ${selector}`);
+              messageListFound = true;
+              break;
+            } catch (error) {
+              console.log(`Message list selector ${selector} not found, trying next...`);
+            }
+          }
+          
+          if (!messageListFound) {
+            throw new Error('Could not find message list with any known selector');
+          }
+          
+          // Additional check to ensure we're actually in a conversation (not just the main messaging page)
+          const isInConversation = await activePage.evaluate(() => {
+            // Check for conversation-specific elements
+            const conversationIndicators = [
+              '.msg-conversation-header',
+              '.msg-conversation-header__title',
+              '.msg-conversation-header__name',
+              '.msg-s-message-list__event',
+              '.msg-s-message-list__message',
+              '.msg-s-event-listitem'
+            ];
+            
+            return conversationIndicators.some(selector => document.querySelector(selector) !== null);
+          });
+          
+          if (!isInConversation) {
+            console.log('⚠️ Warning: Not in a conversation page, may need to wait longer...');
+            // Wait a bit more for the conversation to load
+            await adaptiveDelay(activePage, 2000 + Math.random() * 2000, 1.1);
+          } else {
+            console.log('✅ Confirmed: In conversation page');
+          }
+        }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.8 });
+        
+        // Enhanced scrolling to load more messages if needed
+        await enhancedHumanScroll(activePage, {
+          direction: 'up',
+          distance: 200 + Math.random() * 300,
+          speed: 'slow',
+          addRandomStops: true,
+          addOverscroll: true
+        });
+        
+        // Enhanced message extraction with human-like reading behavior
         const conversationData = await activePage.evaluate(() => {
+          // Try multiple selectors for message elements (LinkedIn updates their DOM frequently)
+          const messageSelectors = [
+            '.msg-s-message-list__event',
+            '.msg-s-message-list__message',
+            '.msg-s-event-listitem',
+            '.msg-s-message-group',
+            '[data-test-message]',
+            '.msg-s-message-list__event-item'
+          ];
+          
+          let messageElements = [];
+          for (const selector of messageSelectors) {
+            messageElements = document.querySelectorAll(selector);
+            if (messageElements.length > 0) {
+              console.log(`Found ${messageElements.length} messages using selector: ${selector}`);
+              break;
+            }
+          }
+          
           const messages = [];
-          const messageElements = document.querySelectorAll('.msg-s-message-list__event');
-          
-          // Set to collect unique sender names (excluding account owner)
           const senderNames = new Set();
-          const accountOwnerNames = ['You', 'Shilpa Shree', 'Shilpa'];
           
-          messageElements.forEach(msg => {
-            // Try to get the sender's name
-            let sender = msg.querySelector('.msg-s-message-group__name')?.innerText?.trim();
-            if (!sender) {
-              const avatar = msg.querySelector('[aria-label]');
-              sender = avatar?.getAttribute('aria-label') || 'You';
+          console.log(`Processing ${messageElements.length} message elements`);
+          
+          // Try multiple selectors for sender names
+          const senderSelectors = [
+            '.msg-s-message-group__name',
+            '.msg-s-message-list__message-sender',
+            '.msg-s-message-list__message-sender-name',
+            '.msg-s-message-group__name-text',
+            '.msg-s-event-listitem__sender',
+            '[data-test-message-sender]',
+            '.msg-s-message-list__message-sender .msg-s-message-list__message-sender-name',
+            '.msg-s-message-list__message-sender span',
+            '.msg-s-message-list__message-sender a',
+            '.msg-s-message-list__message-sender-name span',
+            '.msg-s-message-list__message-sender-name a',
+            '.msg-s-message-list__message-sender-name-text',
+            '.msg-s-message-list__message-sender-text',
+            '.msg-s-message-list__message-sender [aria-label]'
+          ];
+          
+          // Try multiple selectors for message content
+          const messageContentSelectors = [
+            '.msg-s-event-listitem__body',
+            '.msg-s-message-list__message-content',
+            '.msg-s-message-group__message',
+            '.msg-s-message-list__message-text',
+            '.msg-s-event-listitem__content',
+            '[data-test-message-content]',
+            '.msg-s-message-list__message-body'
+          ];
+          
+          // Try multiple selectors for message time
+          const timeSelectors = [
+            '.msg-s-message-group__timestamp',
+            '.msg-s-message-list__message-time',
+            '.msg-s-event-listitem__time',
+            'time',
+            '.msg-s-message-list__message-timestamp',
+            '[data-test-message-time]'
+          ];
+          
+          messageElements.forEach((msg, index) => {
+            let senderElement = null;
+            let messageElement = null;
+            let timeElement = null;
+            
+            // Try different selectors for sender
+            for (const selector of senderSelectors) {
+              senderElement = msg.querySelector(selector);
+              if (senderElement && senderElement.textContent.trim()) {
+                console.log(`Found sender for message ${index}: ${senderElement.textContent.trim()}`);
+                break;
+              }
             }
             
-            // Clean up the sender name
-            sender = sender.replace(/^You\s*/, '').trim() || 'You';
-            
-            // Add to sender names if it's not the account owner
-            if (!accountOwnerNames.some(name => 
-              sender.toLowerCase().includes(name.toLowerCase()) || 
-              name.toLowerCase().includes(sender.toLowerCase())
-            ) && sender !== 'You' && sender.length > 1) {
-              senderNames.add(sender);
+            // Try different selectors for message content
+            for (const selector of messageContentSelectors) {
+              messageElement = msg.querySelector(selector);
+              if (messageElement && messageElement.textContent.trim()) {
+                console.log(`Found message content for message ${index}: ${messageElement.textContent.trim().substring(0, 50)}...`);
+                break;
+              }
             }
             
-            // Get message content
-            const messageElement = msg.querySelector('.msg-s-event-listitem__body');
-            let message = messageElement?.innerText?.trim() || '';
+            // Try different selectors for time
+            for (const selector of timeSelectors) {
+              timeElement = msg.querySelector(selector);
+              if (timeElement) {
+                console.log(`Found time for message ${index}: ${timeElement.getAttribute('title') || timeElement.textContent.trim()}`);
+                break;
+              }
+            }
             
-            // Get message time
-            const timeElement = msg.querySelector('time');
-            const time = timeElement?.getAttribute('datetime') || new Date().toISOString();
+            // If still not found, try to get from aria-label or data attributes
+            if (!senderElement) {
+              const ariaLabelElement = msg.querySelector('[aria-label*="message from"]');
+              if (ariaLabelElement) {
+                const ariaLabel = ariaLabelElement.getAttribute('aria-label');
+                const match = ariaLabel.match(/message from (.+)/i);
+                if (match) {
+                  senderElement = { textContent: match[1] };
+                  console.log(`Found sender from aria-label: ${match[1]}`);
+                }
+              }
+            }
+            
+            let sender = 'Unknown';
+            let message = '';
+            let time = '';
+            
+            if (senderElement) {
+              sender = senderElement.textContent.trim();
+              if (sender && sender !== 'Unknown') {
+                // Clean up sender name - remove "You" prefix and common variations
+                sender = sender.replace(/^You\s*/, '').trim() || 'You';
+                if (sender !== 'You' && sender.length > 1) {
+                  senderNames.add(sender);
+                  console.log(`Added sender name: ${sender}`);
+                }
+              }
+            }
+            
+            if (messageElement) {
+              message = messageElement.textContent.trim();
+            }
+            
+            if (timeElement) {
+              time = timeElement.getAttribute('title') || timeElement.getAttribute('datetime') || timeElement.textContent.trim();
+            }
             
             if (message) {
               messages.push({
@@ -2535,38 +3587,168 @@ const scrapeConversations = async (limit = 5, userId = null) => {
                 message,
                 time
               });
+              console.log(`✅ Added message ${index}: ${sender} - ${message.substring(0, 30)}...`);
+            } else {
+              console.log(`⚠️ No message content found for message ${index}`);
             }
           });
+          
+          console.log(`Collected sender names: ${Array.from(senderNames).join(', ')}`);
           
           // Determine the contact name from collected sender names
           let contactName = 'Unknown';
           if (senderNames.size > 0) {
-            contactName = senderNames.size === 1 ? 
-              Array.from(senderNames)[0] : 
-              Array.from(senderNames).join(' & ');
+            // Filter out 'You' and empty names
+            const validNames = Array.from(senderNames).filter(name => 
+              name && name.trim() && name.toLowerCase() !== 'you' && name.toLowerCase() !== 'unknown'
+            );
+            
+            console.log(`Valid names after filtering: ${validNames.join(', ')}`);
+            
+            if (validNames.length === 1) {
+              contactName = validNames[0];
+            } else if (validNames.length > 1) {
+              // If multiple senders, use the first non-'You' name
+              contactName = validNames[0];
+            }
+          }
+          
+          // If still unknown, try to get contact name from conversation header
+          if (contactName === 'Unknown') {
+            console.log('Trying to get contact name from conversation header...');
+            const headerSelectors = [
+              '.msg-conversation-header__title',
+              '.msg-conversation-header__name',
+              '.msg-conversation-header h1',
+              '.msg-conversation-header .msg-conversation-header__title',
+              '.msg-conversation-header__title-text',
+              '.msg-conversation-header__name-text',
+              '.msg-conversation-header__participant-name',
+              '.msg-conversation-header__participant-name-text'
+            ];
+            
+            for (const selector of headerSelectors) {
+              const headerElement = document.querySelector(selector);
+              if (headerElement && headerElement.textContent.trim()) {
+                contactName = headerElement.textContent.trim();
+                console.log(`Found contact name from header: ${contactName}`);
+                break;
+              }
+            }
+          }
+          
+          // If still unknown, try to get from conversation list item
+          if (contactName === 'Unknown') {
+            console.log('Trying to get contact name from conversation list item...');
+            const listItemSelectors = [
+              '.msg-conversation-listitem--selected .msg-conversation-listitem__participant-name',
+              '.msg-conversation-listitem--selected .msg-conversation-listitem__participant-name-text',
+              '.msg-conversation-listitem--selected .msg-conversation-listitem__name',
+              '.msg-conversation-listitem--selected .msg-conversation-listitem__title',
+              '.msg-conversation-listitem--selected [data-test-conversation-name]',
+              '.msg-conversation-listitem--selected .msg-conversation-listitem__participant-name-text'
+            ];
+            
+            for (const selector of listItemSelectors) {
+              const listItemElement = document.querySelector(selector);
+              if (listItemElement && listItemElement.textContent.trim()) {
+                contactName = listItemElement.textContent.trim();
+                console.log(`Found contact name from list item: ${contactName}`);
+                break;
+              }
+            }
+          }
+          
+          // If still unknown, try to get from the page title or any other visible element
+          if (contactName === 'Unknown') {
+            console.log('Trying to get contact name from page title...');
+            const pageTitle = document.title;
+            if (pageTitle && pageTitle.includes('|')) {
+              const titleParts = pageTitle.split('|');
+              if (titleParts.length > 0) {
+                const potentialName = titleParts[0].trim();
+                if (potentialName && potentialName.length > 0) {
+                  contactName = potentialName;
+                  console.log(`Found contact name from page title: ${contactName}`);
+                }
+              }
+            }
           }
           
           // Update receiver field in messages
           messages.forEach(msg => {
-            if (msg.sender === 'You') {
+            if (msg.sender === 'You' || msg.sender.toLowerCase() === 'you') {
               msg.receiver = contactName;
             } else {
               msg.receiver = 'You';
             }
           });
           
+          console.log(`Final contact name: ${contactName}`);
+          
           return {
             contactName,
             messages,
-            messageCount: messages.length
+            messageCount: messages.length,
+            senderNames: Array.from(senderNames)
           };
         });
         
         console.log(`  Contact: ${conversationData.contactName} (${conversationData.messageCount} messages)`);
         
-        if (conversationData.contactName !== 'Unknown' && conversationData.messages.length > 0) {
-          // Save to database using existing function
-          const conversationId = await getOrCreateConversation(conversationData.contactName, userId);
+        // Use contact name from list item as fallback if still unknown
+        if (conversationData.contactName === 'Unknown' && contactNameFromList) {
+          console.log(`Using contact name from list item as fallback: ${contactNameFromList}`);
+          conversationData.contactName = contactNameFromList;
+        }
+        
+        // Additional debugging for contact name
+        if (conversationData.contactName === 'Unknown' || conversationData.contactName === 'Messaging') {
+          console.log(`⚠️ Warning: Contact name is still unknown or placeholder. Trying to extract from page...`);
+          
+          // Try to get contact name from the current page URL or title
+          const pageInfo = await activePage.evaluate(() => {
+            const title = document.title;
+            const url = window.location.href;
+            const headerElements = document.querySelectorAll('h1, h2, h3, .msg-conversation-header__title, .msg-conversation-header__name');
+            const headerTexts = Array.from(headerElements).map(el => el.textContent.trim()).filter(text => text.length > 0);
+            
+            return {
+              title,
+              url,
+              headerTexts
+            };
+          });
+          
+          console.log(`Page info:`, pageInfo);
+          
+          // Try to extract name from page title
+          if (pageInfo.title && pageInfo.title.includes('|')) {
+            const titleParts = pageInfo.title.split('|');
+            if (titleParts.length > 0) {
+              const potentialName = titleParts[0].trim();
+              if (potentialName && potentialName.length > 1 && potentialName.toLowerCase() !== 'messaging') {
+                conversationData.contactName = potentialName;
+                console.log(`✅ Extracted contact name from page title: ${potentialName}`);
+              }
+            }
+          }
+          
+          // Try to extract from header texts
+          if (conversationData.contactName === 'Unknown' && pageInfo.headerTexts.length > 0) {
+            for (const headerText of pageInfo.headerTexts) {
+              if (headerText && headerText.length > 1 && headerText.toLowerCase() !== 'messaging') {
+                conversationData.contactName = headerText;
+                console.log(`✅ Extracted contact name from header: ${headerText}`);
+                break;
+              }
+            }
+          }
+        }
+        
+        if (conversationData.contactName !== 'Unknown' && conversationData.contactName !== 'Messaging' && conversationData.messages.length > 0) {
+          // Save to database using existing function with LinkedIn account ID
+          const conversationId = await getOrCreateConversation(conversationData.contactName, userId, linkedinAccountId);
           
           // Save messages to database
           for (const msg of conversationData.messages) {
@@ -2587,39 +3769,129 @@ const scrapeConversations = async (limit = 5, userId = null) => {
           scrapedData.scrapedConversations++;
           console.log(`✅ Saved ${conversationData.messages.length} messages for ${conversationData.contactName}`);
         } else {
-          console.log(`⚠️ Skipping conversation - Contact: ${conversationData.contactName}`);
+          console.log(`⚠️ Skipping conversation - Contact: ${conversationData.contactName}, Messages: ${conversationData.messages.length}`);
+          
+          // If no messages found, try to scroll and wait a bit more
+          if (conversationData.messages.length === 0) {
+            console.log('No messages found, trying to scroll and wait for more content...');
+            
+            // Try scrolling up to load more messages
+            await enhancedHumanScroll(activePage, {
+              direction: 'up',
+              distance: 500 + Math.random() * 300,
+              speed: 'slow',
+              addRandomStops: true,
+              addOverscroll: true
+            });
+            
+            // Wait a bit more for content to load
+            await adaptiveDelay(activePage, 3000 + Math.random() * 2000, 1.2);
+            
+            // Try to extract messages again
+            const retryConversationData = await activePage.evaluate((originalContactName) => {
+              // Same message extraction logic as above
+              const messageSelectors = [
+                '.msg-s-message-list__event',
+                '.msg-s-message-list__message',
+                '.msg-s-event-listitem',
+                '.msg-s-message-group',
+                '[data-test-message]',
+                '.msg-s-message-list__event-item'
+              ];
+              
+              let messageElements = [];
+              for (const selector of messageSelectors) {
+                messageElements = document.querySelectorAll(selector);
+                if (messageElements.length > 0) {
+                  console.log(`Retry: Found ${messageElements.length} messages using selector: ${selector}`);
+                  break;
+                }
+              }
+              
+              if (messageElements.length === 0) {
+                return { contactName: originalContactName, messages: [], messageCount: 0 };
+              }
+              
+              // Process messages (simplified version for retry)
+              const messages = [];
+              messageElements.forEach((msg) => {
+                const messageElement = msg.querySelector('.msg-s-event-listitem__body, .msg-s-message-list__message-content, .msg-s-message-group__message');
+                const senderElement = msg.querySelector('.msg-s-message-group__name, .msg-s-message-list__message-sender');
+                
+                if (messageElement && messageElement.textContent.trim()) {
+                  const sender = senderElement ? senderElement.textContent.trim() : 'Unknown';
+                  const message = messageElement.textContent.trim();
+                  messages.push({ sender, message, time: '' });
+                }
+              });
+              
+              return {
+                contactName: originalContactName,
+                messages,
+                messageCount: messages.length
+              };
+            }, conversationData.contactName);
+            
+            if (retryConversationData.messages.length > 0) {
+              console.log(`✅ Retry successful: Found ${retryConversationData.messages.length} messages`);
+              conversationData.messages = retryConversationData.messages;
+              conversationData.messageCount = retryConversationData.messages.length;
+            } else {
+              console.log(`⚠️ Retry failed: Still no messages found`);
+            }
+          }
         }
         
-        // Human-like delay between conversations
-        await smartHumanDelay(0.5);
+        // Enhanced delay between conversations with adaptive timing
+        await adaptiveDelay(activePage, 2000 + Math.random() * 3000, 1.1);
+        
+        // Random scroll or mouse movement between conversations
+        if (Math.random() < 0.4) {
+          await enhancedHumanScroll(activePage, {
+            direction: Math.random() > 0.5 ? 'down' : 'up',
+            distance: 100 + Math.random() * 200,
+            speed: 'normal',
+            addRandomStops: true
+          });
+        }
         
       } catch (err) {
         console.error(`⚠️ Failed to scrape conversation ${i + 1}:`, err.message);
         scrapedData.errors.push(`Conversation ${i + 1}: ${err.message}`);
+        
+        // Adaptive delay after error
+        await adaptiveDelay(activePage, 3000, 1.5);
       }
     }
     
-    console.log(`✅ Scraping completed: ${scrapedData.scrapedConversations}/${actualLimit} conversations processed`);
+    console.log(`✅ Enhanced scraping completed: ${scrapedData.scrapedConversations}/${actualLimit} conversations processed`);
     return scrapedData;
     
   } catch (error) {
-    console.error('Error in scrapeConversations:', error);
+    console.error('Error in enhanced scrapeConversations:', error);
     throw error;
   }
 };
 
 // Helper function to get or create conversation (from scraper.js logic)
-const getOrCreateConversation = (contactName, userId = null) => {
+const getOrCreateConversation = (contactName, userId = null, linkedinAccountId = null) => {
   return new Promise((resolve, reject) => {
     if (!contactName) {
       return reject(new Error('Contact name is required'));
     }
 
-    // First, try to find existing conversation (user-specific)
-    const query = userId 
-      ? "SELECT id FROM conversations WHERE contact_name = ? AND (user_id = ? OR user_id IS NULL)"
-      : "SELECT id FROM conversations WHERE contact_name = ?";
-    const params = userId ? [contactName, userId] : [contactName];
+    // First, try to find existing conversation (LinkedIn account-specific)
+    let query, params;
+    if (linkedinAccountId) {
+      query = "SELECT id FROM conversations WHERE contact_name = ? AND linkedin_account_id = ?";
+      params = [contactName, linkedinAccountId];
+    } else if (userId) {
+      query = "SELECT id FROM conversations WHERE contact_name = ? AND user_id = ?";
+      params = [contactName, userId];
+    } else {
+      query = "SELECT id FROM conversations WHERE contact_name = ? AND linkedin_account_id IS NULL AND user_id IS NULL";
+      params = [contactName];
+    }
     
     db.get(
       query,
@@ -2635,10 +3907,17 @@ const getOrCreateConversation = (contactName, userId = null) => {
         }
         
         // If not found, create a new conversation
-        const insertQuery = userId 
-          ? "INSERT INTO conversations (contact_name, last_updated, user_id) VALUES (?, datetime('now'), ?)"
-          : "INSERT INTO conversations (contact_name, last_updated) VALUES (?, datetime('now'))";
-        const insertParams = userId ? [contactName, userId] : [contactName];
+        let insertQuery, insertParams;
+        if (linkedinAccountId) {
+          insertQuery = "INSERT INTO conversations (contact_name, last_updated, linkedin_account_id) VALUES (?, datetime('now'), ?)";
+          insertParams = [contactName, linkedinAccountId];
+        } else if (userId) {
+          insertQuery = "INSERT INTO conversations (contact_name, last_updated, user_id) VALUES (?, datetime('now'), ?)";
+          insertParams = [contactName, userId];
+        } else {
+          insertQuery = "INSERT INTO conversations (contact_name, last_updated) VALUES (?, datetime('now'))";
+          insertParams = [contactName];
+        }
         
         db.run(
           insertQuery,
@@ -2740,8 +4019,13 @@ app.post('/api/rescrape', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  
+  // Run migration for existing conversations
+  await migrateExistingConversations();
+  await migrateLinkedInAccountId();
+  await cleanupOldConversations();
 });
 
 // Handle process termination
