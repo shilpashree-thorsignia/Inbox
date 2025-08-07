@@ -1,14 +1,36 @@
 import React, { useState } from 'react';
 import './ConversationList.css';
 
-const ConversationList = ({ conversations, onSelectConversation, selectedConversationId, onSync, isSyncing = false }) => {
+const ConversationList = ({ conversations, onSelectConversation, selectedConversationId, onSync, isSyncing = false, onDeleteConversation }) => {
   const [syncLimit, setSyncLimit] = useState(5);
+  const [deletingConversationId, setDeletingConversationId] = useState(null);
 
   const handleSync = () => {
     if (onSync) {
       // If "All chats" is selected, use the actual number of conversations
       const actualLimit = syncLimit >= 100 ? conversations.length : Math.min(syncLimit, conversations.length);
       onSync(actualLimit);
+    }
+  };
+
+  const handleDeleteConversation = async (e, conversationId, conversationName) => {
+    e.stopPropagation(); // Prevent conversation selection when clicking delete
+    
+    if (!onDeleteConversation) return;
+    
+    // Show confirmation dialog
+    const isConfirmed = window.confirm(`Are you sure you want to delete the conversation with "${conversationName}"? This will remove all messages from the database and cannot be undone.`);
+    
+    if (isConfirmed) {
+      try {
+        setDeletingConversationId(conversationId);
+        await onDeleteConversation(conversationId);
+      } catch (error) {
+        console.error('Failed to delete conversation:', error);
+        alert(`Failed to delete conversation: ${error.message}`);
+      } finally {
+        setDeletingConversationId(null);
+      }
     }
   };
 
@@ -88,8 +110,20 @@ const ConversationList = ({ conversations, onSelectConversation, selectedConvers
                   {conversation.lastMessage?.message || 'No messages'}
                 </div>
               </div>
-              <div className="conversation-time">
-                {conversation.lastMessage?.time || ''}
+              <div className="conversation-actions">
+                <div className="conversation-time">
+                  {conversation.lastMessage?.time || ''}
+                </div>
+                {onDeleteConversation && (
+                  <button
+                    className={`delete-button ${deletingConversationId === conversation.id ? 'deleting' : ''}`}
+                    onClick={(e) => handleDeleteConversation(e, conversation.id, conversation.contactName)}
+                    disabled={deletingConversationId === conversation.id}
+                    title={`Delete conversation with ${conversation.contactName}`}
+                  >
+                    {deletingConversationId === conversation.id ? '⏳' : '🗑'}
+                  </button>
+                )}
               </div>
             </div>
           ))

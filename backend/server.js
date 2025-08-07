@@ -850,6 +850,106 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
   }
 });
 
+// Delete conversation endpoint - remove conversation and its messages from database
+app.delete('/api/conversations/:conversationId', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  
+  try {
+    const { conversationId } = req.params;
+    
+    if (!conversationId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Conversation ID is required' 
+      });
+    }
+
+    console.log(`Deleting conversation ${conversationId} for user ${req.user.id}`);
+    
+    // First, check if the conversation exists and belongs to this user
+    const conversation = await dbAll(
+      'SELECT id, contact_name, user_id, linkedin_account_id FROM conversations WHERE id = ?',
+      [conversationId]
+    );
+    
+    if (conversation.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Conversation not found' 
+      });
+    }
+    
+    const conv = conversation[0];
+    
+    // Check if user has permission to delete this conversation
+    if (conv.user_id && conv.user_id !== req.user.id) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You do not have permission to delete this conversation' 
+      });
+    }
+    
+    // Delete all messages for this conversation first
+    const deleteMessagesResult = await new Promise((resolve, reject) => {
+      db.run(
+        'DELETE FROM messages WHERE conversation_id = ?',
+        [conversationId],
+        function(err) {
+          if (err) {
+            console.error('Error deleting messages:', err);
+            reject(err);
+          } else {
+            console.log(`Deleted ${this.changes} messages for conversation ${conversationId}`);
+            resolve(this.changes);
+          }
+        }
+      );
+    });
+    
+    // Delete the conversation
+    const deleteConversationResult = await new Promise((resolve, reject) => {
+      db.run(
+        'DELETE FROM conversations WHERE id = ?',
+        [conversationId],
+        function(err) {
+          if (err) {
+            console.error('Error deleting conversation:', err);
+            reject(err);
+          } else {
+            if (this.changes === 0) {
+              reject(new Error('Conversation not found'));
+            } else {
+              console.log(`Deleted conversation ${conversationId}: ${conv.contact_name}`);
+              resolve(this.changes);
+            }
+          }
+        }
+      );
+    });
+    
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted conversation: ${conv.contact_name}`,
+      data: {
+        deletedConversationId: conversationId,
+        deletedConversationName: conv.contact_name,
+        deletedMessages: deleteMessagesResult,
+        deletedConversations: deleteConversationResult
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error deleting conversation:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete conversation', 
+      error: error.message 
+    });
+  }
+});
+
 // Helper function to scrape LinkedIn messages
 const scrapeLinkedInMessages = async (limit) => {
   let browser;

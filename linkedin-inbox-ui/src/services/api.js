@@ -201,6 +201,38 @@ const syncConversations = async (limit = 5) => {
   }
 };
 
+// Delete conversation function - remove conversation and its messages from database
+const deleteConversation = async (conversationId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      }
+    });
+    
+    if (!response.ok) {
+      // Check if the response is JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const error = await response.json();
+        throw new Error(error.error || error.message || 'Delete failed');
+      } else {
+        // Handle non-JSON responses (like HTML error pages)
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      }
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting conversation:', error);
+    throw error;
+  }
+};
+
 // LinkedIn connection functions
 const getLinkedInStatus = async () => {
   try {
@@ -291,6 +323,7 @@ export default {
   logout,
   scrapeConversations,
   syncConversations,
+  deleteConversation,
   getLinkedInStatus,
   connectToLinkedIn,
   detectLinkedInProfile,

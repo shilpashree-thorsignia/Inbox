@@ -117,6 +117,38 @@ function App() {
     }
   }, [loadConversations, selectedConversation, handleSelectConversation]);
 
+  // Delete conversation function - remove conversation and its messages from database
+  const deleteConversation = useCallback(async (conversationId) => {
+    try {
+      setError(null); // Clear any previous errors
+      setSuccessMessage(null); // Clear any previous success messages
+      console.log(`Deleting conversation ${conversationId}...`);
+      
+      const data = await api.deleteConversation(conversationId);
+      console.log('Conversation deleted:', data);
+      
+      // Reload conversations to show updated data
+      await loadConversations();
+      
+      // If the deleted conversation was selected, clear the selection
+      if (selectedConversation && selectedConversation.id === conversationId) {
+        setSelectedConversation(null);
+      }
+      
+      // Show success message
+      setSuccessMessage(`✅ Conversation "${data.data.deletedConversationName}" deleted successfully`);
+      console.log(`✅ Conversation deleted: ${data.data.deletedConversationName}`);
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 5000);
+    } catch (err) {
+      console.error('Failed to delete conversation:', err);
+      setError(`Failed to delete conversation: ${err.message}`);
+    }
+  }, [loadConversations, selectedConversation]);
+
   // Authentication functions
 
 
@@ -241,6 +273,7 @@ function App() {
                 selectedConversationId={selectedConversation?.id}
                 onSync={syncConversations}
                 isSyncing={isSyncing}
+                onDeleteConversation={deleteConversation}
               />
             </>
           ) : (
