@@ -19,6 +19,7 @@ function App() {
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
 
   // Handle conversation selection
@@ -68,6 +69,29 @@ function App() {
       setIsLoading(false);
     }
   }, []);
+
+  // Sync conversations function - fetch latest messages from existing conversations
+  const syncConversations = useCallback(async () => {
+    try {
+      setIsSyncing(true);
+      console.log('Syncing conversations...');
+      const data = await api.syncConversations();
+      console.log('Conversations synced:', data);
+      
+      // Reload conversations to show updated data
+      await loadConversations();
+      
+      // If there's a selected conversation, refresh it too
+      if (selectedConversation) {
+        await handleSelectConversation(selectedConversation.id);
+      }
+    } catch (err) {
+      console.error('Failed to sync conversations:', err);
+      setError('Failed to sync conversations. Please try again later.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [loadConversations, selectedConversation, handleSelectConversation]);
 
   // Authentication functions
 
@@ -184,7 +208,8 @@ function App() {
                 conversations={conversations}
                 onSelectConversation={handleSelectConversation}
                 selectedConversationId={selectedConversation?.id}
-                onRefresh={loadConversations}
+                onSync={syncConversations}
+                isSyncing={isSyncing}
               />
             </>
           ) : (

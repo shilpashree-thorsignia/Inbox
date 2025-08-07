@@ -1,20 +1,23 @@
 import React from 'react';
 import './ConversationList.css';
 
-const ConversationList = ({ conversations, onSelectConversation, selectedConversationId, onRefresh }) => {
+const ConversationList = ({ conversations, onSelectConversation, selectedConversationId, onSync, isSyncing = false }) => {
   return (
     <div className="conversation-list">
       <div className="conversation-list-header">
         <h2>Conversations</h2>
-        {onRefresh && (
-          <button 
-            className="refresh-button" 
-            onClick={onRefresh}
-            title="Refresh conversations"
-          >
-            🔄
-          </button>
-        )}
+        <div className="conversation-list-actions">
+          {onSync && (
+            <button 
+              className={`sync-button ${isSyncing ? 'syncing' : ''}`}
+              onClick={onSync}
+              disabled={isSyncing}
+              title="Sync latest messages"
+            >
+              {isSyncing ? '⏳ Syncing...' : '🔄 Sync'}
+            </button>
+          )}
+        </div>
       </div>
       <div className="conversation-items">
         {conversations.length > 0 ? (

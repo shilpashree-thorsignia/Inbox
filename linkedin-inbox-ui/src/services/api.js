@@ -177,6 +177,29 @@ const scrapeConversations = async (limit = 5) => {
   }
 };
 
+// Sync conversations function - fetch latest messages from existing conversations
+const syncConversations = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/sync-conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Sync failed');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error syncing conversations:', error);
+    throw error;
+  }
+};
+
 // LinkedIn connection functions
 const getLinkedInStatus = async () => {
   try {
@@ -266,6 +289,7 @@ export default {
   updateProfile,
   logout,
   scrapeConversations,
+  syncConversations,
   getLinkedInStatus,
   connectToLinkedIn,
   detectLinkedInProfile,
