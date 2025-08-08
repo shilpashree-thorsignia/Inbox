@@ -3581,14 +3581,21 @@ const scrapeConversations = async (limit = 5, userId = null) => {
     await enhancedPageInteraction(activePage, async () => {
       // Try multiple selectors for conversations list (LinkedIn updates their DOM frequently)
       const conversationListSelectors = [
+        '.scaffold-layout__list.msg__list',
         '.msg-conversations-container__conversations-list',
         '.msg-conversations-list',
         '.conversations-list',
         '[data-test-conversations-list]',
         '.msg-conversations-container ul',
-        '.conversations-container ul'
+        '.conversations-container ul',
+        // Newer/robust fallbacks observed in recent LinkedIn UI
+        'ul.scaffold-finite-scroll__content',
+        'div.scaffold-finite-scroll__content',
+        'aside[aria-label*="Conversation" i]',
+        // Absolute fallback: presence of any conversation thread link
+        'a[href*="/messaging/thread/"]'
       ];
-      
+      // class="shared-title-bar__title msg-title-bar__title-bar-title"
       let conversationListFound = false;
       for (const selector of conversationListSelectors) {
         try {
@@ -3598,6 +3605,15 @@ const scrapeConversations = async (limit = 5, userId = null) => {
           break;
         } catch (error) {
           console.log(`Selector ${selector} not found, trying next...`);
+        }
+      }
+      
+      // As an ultimate fallback, scan the DOM for any links to messaging threads
+      if (!conversationListFound) {
+        const hasThreadLinks = await activePage.evaluate(() => !!document.querySelector('a[href*="/messaging/thread/"]'));
+        if (hasThreadLinks) {
+          console.log('Found conversation items via thread links fallback');
+          conversationListFound = true;
         }
       }
       
@@ -3614,7 +3630,11 @@ const scrapeConversations = async (limit = 5, userId = null) => {
       '.conversation-list-item',
       '[data-test-conversation-item]',
       '.msg-conversations-container__conversations-list li',
-      '.conversations-list li'
+      '.conversations-list li',
+      // Newer/robust selectors
+      'ul.scaffold-finite-scroll__content li',
+      'div.scaffold-finite-scroll__content li',
+      'a[href*="/messaging/thread/"]'
     ];
     
     for (const selector of conversationItemSelectors) {
@@ -3652,7 +3672,10 @@ const scrapeConversations = async (limit = 5, userId = null) => {
             '.conversation-list-item',
             '[data-test-conversation-item]',
             '.msg-conversations-container__conversations-list li',
-            '.conversations-list li'
+            '.conversations-list li',
+            'ul.scaffold-finite-scroll__content li',
+            'div.scaffold-finite-scroll__content li',
+            'a[href*="/messaging/thread/"]'
           ];
           
           let conversationItems = [];
@@ -3670,12 +3693,13 @@ const scrapeConversations = async (limit = 5, userId = null) => {
               '.msg-conversation-listitem__name',
               '.msg-conversation-listitem__title',
               '[data-test-conversation-name]',
-              '.msg-conversation-listitem__participant-name-text',
               '.conversation-name',
               '.participant-name',
               '.contact-name',
+              '.msg-conversation-card__participant-names',
               'h3',
               'h4',
+              'span[dir="auto"]',
               '.name',
               '.title'
             ];
@@ -3696,6 +3720,24 @@ const scrapeConversations = async (limit = 5, userId = null) => {
         
         if (contactNameFromList) {
           console.log(`Found contact name from list item: ${contactNameFromList}`);
+        }
+
+        // Skip scraping if this conversation already exists for this LinkedIn account
+        try {
+          if (contactNameFromList && linkedinAccountId) {
+            const existing = await dbAll(
+              'SELECT id FROM conversations WHERE contact_name = ? AND linkedin_account_id = ? LIMIT 1',
+              [contactNameFromList, linkedinAccountId]
+            );
+            if (existing && existing.length > 0) {
+              console.log(`Skipping existing conversation: ${contactNameFromList} (already in DB)`);
+              // Short human-like pause before moving to next
+              await adaptiveDelay(activePage, 1200 + Math.random() * 800, 0.9);
+              continue;
+            }
+          }
+        } catch (existErr) {
+          console.log(`Existence check failed (continuing to scrape): ${existErr.message}`);
         }
         
         // Enhanced conversation clicking with randomized mouse movements
@@ -3781,14 +3823,81 @@ const scrapeConversations = async (limit = 5, userId = null) => {
           }
         }, { addMouseMovement: false, addScroll: false, complexityMultiplier: 0.8 });
         
-        // Enhanced scrolling to load more messages if needed
-        await enhancedHumanScroll(activePage, {
-          direction: 'up',
-          distance: 200 + Math.random() * 300,
-          speed: 'slow',
-          addRandomStops: true,
-          addOverscroll: true
-        });
+        // Enhanced scrolling to load ALL messages using the conversation container (not just page scroll)
+        console.log('Starting container-based scrolling to load all messages...');
+        let previousMessageCount = 0;
+        let scrollAttempts = 0;
+        const maxScrollAttempts = 30; // allow deeper history
+        let reachedTopStreak = 0;
+
+        while (scrollAttempts < maxScrollAttempts) {
+          const result = await activePage.evaluate(() => {
+            const listSelectors = [
+              '.msg-s-message-list__container',
+              '.msg-s-message-list',
+              '.msg-conversation-messages',
+              '.messages-list',
+              '.conversation-messages',
+              '[data-test-message-list]'
+            ];
+            const msgSelectors = [
+              '.msg-s-message-list__event',
+              '.msg-s-message-list__message',
+              '.msg-s-event-listitem',
+              '.msg-s-message-group',
+              '[data-test-message]',
+              '.msg-s-message-list__event-item'
+            ];
+
+            let container = null;
+            for (const s of listSelectors) {
+              const el = document.querySelector(s);
+              if (el) { container = el; break; }
+            }
+            const count = msgSelectors.reduce((acc, sel) => {
+              const n = document.querySelectorAll(sel).length;
+              return n > 0 ? n : acc;
+            }, 0);
+
+            if (container) {
+              const atTop = container.scrollTop <= 0;
+              container.scrollTop = 0; // jump to top each pass to trigger lazy load
+              return { atTop, count };
+            }
+            return { atTop: false, count };
+          });
+
+          console.log(`Container scroll ${scrollAttempts + 1}: messages=${result.count}, atTop=${result.atTop}`);
+
+          if (result.count === previousMessageCount) {
+            reachedTopStreak += result.atTop ? 1 : 0;
+          } else {
+            reachedTopStreak = 0;
+          }
+          previousMessageCount = result.count;
+
+          // Try clicking any explicit "load older" controls if present
+          await activePage.evaluate(() => {
+            const candidates = Array.from(document.querySelectorAll('button, a'));
+            for (const el of candidates) {
+              const txt = (el.innerText || '').toLowerCase();
+              const aria = (el.getAttribute ? (el.getAttribute('aria-label') || '') : '').toLowerCase();
+              if (txt.includes('older') || txt.includes('earlier') || txt.includes('load more') || aria.includes('older')) {
+                try { (el).click(); } catch (e) {}
+              }
+            }
+          });
+
+          // If we've been at top a few passes and message count isn't changing, stop
+          if (reachedTopStreak >= 2) {
+            console.log('Reached conversation top; stopping scroll');
+            break;
+          }
+
+          await adaptiveDelay(activePage, 1200 + Math.random() * 1000, 1.1);
+          scrollAttempts++;
+        }
+        console.log(`Completed container scrolling after ${scrollAttempts} attempts`);
         
         // Enhanced message extraction with human-like reading behavior
         const conversationData = await activePage.evaluate(() => {
@@ -3938,45 +4047,28 @@ const scrapeConversations = async (limit = 5, userId = null) => {
           
           console.log(`Collected sender names: ${Array.from(senderNames).join(', ')}`);
           
-          // Determine the contact name from collected sender names
+          // Determine the contact name - prioritize the primary contact (not "You")
           let contactName = 'Unknown';
-          if (senderNames.size > 0) {
-            // Filter out 'You' and empty names
-            const validNames = Array.from(senderNames).filter(name => 
-              name && name.trim() && name.toLowerCase() !== 'you' && name.toLowerCase() !== 'unknown'
-            );
-            
-            console.log(`Valid names after filtering: ${validNames.join(', ')}`);
-            
-            if (validNames.length === 1) {
-              contactName = validNames[0];
-            } else if (validNames.length > 1) {
-              // If multiple senders, use the first non-'You' name
-              contactName = validNames[0];
-            }
-          }
           
-          // If still unknown, try to get contact name from conversation header
-          if (contactName === 'Unknown') {
-            console.log('Trying to get contact name from conversation header...');
-            const headerSelectors = [
-              '.msg-conversation-header__title',
-              '.msg-conversation-header__name',
-              '.msg-conversation-header h1',
-              '.msg-conversation-header .msg-conversation-header__title',
-              '.msg-conversation-header__title-text',
-              '.msg-conversation-header__name-text',
-              '.msg-conversation-header__participant-name',
-              '.msg-conversation-header__participant-name-text'
-            ];
-            
-            for (const selector of headerSelectors) {
-              const headerElement = document.querySelector(selector);
-              if (headerElement && headerElement.textContent.trim()) {
-                contactName = headerElement.textContent.trim();
-                console.log(`Found contact name from header: ${contactName}`);
-                break;
-              }
+          // First, try to get contact name from conversation header (most reliable)
+          console.log('Trying to get contact name from conversation header...');
+          const headerSelectors = [
+            '.msg-conversation-header__title',
+            '.msg-conversation-header__name',
+            '.msg-conversation-header h1',
+            '.msg-conversation-header .msg-conversation-header__title',
+            '.msg-conversation-header__title-text',
+            '.msg-conversation-header__name-text',
+            '.msg-conversation-header__participant-name',
+            '.msg-conversation-header__participant-name-text'
+          ];
+          
+          for (const selector of headerSelectors) {
+            const headerElement = document.querySelector(selector);
+            if (headerElement && headerElement.textContent.trim()) {
+              contactName = headerElement.textContent.trim();
+              console.log(`Found contact name from header: ${contactName}`);
+              break;
             }
           }
           
@@ -4002,7 +4094,24 @@ const scrapeConversations = async (limit = 5, userId = null) => {
             }
           }
           
-          // If still unknown, try to get from the page title or any other visible element
+          // If still unknown, try to get from sender names (fallback)
+          if (contactName === 'Unknown' && senderNames.size > 0) {
+            console.log('Trying to get contact name from sender names...');
+            // Filter out 'You' and empty names
+            const validNames = Array.from(senderNames).filter(name => 
+              name && name.trim() && name.toLowerCase() !== 'you' && name.toLowerCase() !== 'unknown'
+            );
+            
+            console.log(`Valid names after filtering: ${validNames.join(', ')}`);
+            
+            if (validNames.length > 0) {
+              // Use the first valid name as the primary contact
+              contactName = validNames[0];
+              console.log(`Selected primary contact from sender names: ${contactName}`);
+            }
+          }
+          
+          // If still unknown, try to get from the page title
           if (contactName === 'Unknown') {
             console.log('Trying to get contact name from page title...');
             const pageTitle = document.title;
