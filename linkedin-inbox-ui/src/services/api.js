@@ -177,6 +177,49 @@ const scrapeConversations = async (limit = 5) => {
   }
 };
 
+// People scraping function
+const scrapePeople = async (companyUrl, limit = 10) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/scrape-people`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ companyUrl, limit })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'People scraping failed');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error scraping people:', error);
+    throw error;
+  }
+};
+
+// Get people from database function
+const getPeople = async (companyName) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/people/${encodeURIComponent(companyName)}`, {
+      headers: getAuthHeaders()
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to retrieve people');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error retrieving people:', error);
+    throw error;
+  }
+};
+
 // Sync conversations function - fetch latest messages from existing conversations
 const syncConversations = async (limit = 5) => {
   try {
@@ -322,6 +365,8 @@ export default {
   updateProfile,
   logout,
   scrapeConversations,
+  scrapePeople,
+  getPeople,
   syncConversations,
   deleteConversation,
   getLinkedInStatus,

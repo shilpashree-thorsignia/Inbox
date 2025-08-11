@@ -4,6 +4,7 @@ import ConversationList from './components/ConversationList';
 import Chat from './components/Chat';
 import LinkedInConnection from './components/LinkedInConnection';
 import ConversationScraper from './components/ConversationScraper';
+import PeopleScraper from './components/PeopleScraper';
 
 
 import api from './services/api';
@@ -265,7 +266,14 @@ function App() {
             onConnectionChange={handleLinkedInConnectionChange}
           />
           {linkedInConnection.isConnected ? (
-            <>
+            <div className="conversation-sidebar-content">
+              <PeopleScraper 
+                onScrapeComplete={() => {
+                  // Handle people scraping completion if needed
+                  console.log('People scraping completed');
+                }}
+              />
+              <div className="sidebar-divider"></div>
               <ConversationList 
                 key={`conversations-${conversations.length}`}
                 conversations={conversations}
@@ -275,18 +283,20 @@ function App() {
                 isSyncing={isSyncing}
                 onDeleteConversation={deleteConversation}
               />
-            </>
+            </div>
           ) : (
-            <div className="connection-required">
-              <div className="connection-message">
-                <h3>🔗 Connect to LinkedIn First</h3>
-                <p>Please connect your LinkedIn account above to view and manage your conversations.</p>
-                <ul>
-                  <li>Access your LinkedIn messages</li>
-                  <li>Send messages through the dashboard</li>
-                  <li>Scrape conversation history</li>
-                  <li>Automate your LinkedIn workflow</li>
-                </ul>
+            <div className="conversation-sidebar-content">
+              <div className="connection-required">
+                <div className="connection-message">
+                  <h3>🔗 Connect to LinkedIn First</h3>
+                  <p>Please connect your LinkedIn account above to view and manage your conversations.</p>
+                  <ul>
+                    <li>Access your LinkedIn messages</li>
+                    <li>Scrape conversation history</li>
+                    <li>Scrape company people</li>
+                    <li>Automate your LinkedIn workflow</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}

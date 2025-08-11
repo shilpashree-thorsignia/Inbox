@@ -1,0 +1,382 @@
+.people-scraper {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e1e5e9;
+  flex-shrink: 0;
+}
+
+.scraper-header {
+  margin-bottom: 16px;
+}
+
+.scraper-header h3 {
+  margin: 0 0 6px 0;
+  color: #1a1a1a;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.scraper-info {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.scraper-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.url-control,
+.limit-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.url-control label,
+.limit-control label {
+  font-weight: 500;
+  color: #333;
+  font-size: 14px;
+}
+
+.url-control input,
+.limit-control select {
+  padding: 12px 16px;
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+  background: #fff;
+}
+
+.url-control input:focus,
+.limit-control select:focus {
+  outline: none;
+  border-color: #0073b1;
+  box-shadow: 0 0 0 3px rgba(0, 115, 177, 0.1);
+}
+
+.url-control input.invalid {
+  border-color: #dc3545;
+}
+
+.url-error {
+  color: #dc3545;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.scrape-button {
+  background: linear-gradient(135deg, #0073b1 0%, #005885 100%);
+  color: white;
+  border: none;
+  padding: 14px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+}
+
+.scrape-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #005885 0%, #004066 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 115, 177, 0.3);
+}
+
+.scrape-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.scrape-button.loading {
+  background: #0073b1;
+  cursor: wait;
+}
+
+.scrape-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.scraper-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.error-icon {
+  font-size: 20px;
+  color: #dc3545;
+  flex-shrink: 0;
+}
+
+.error-message {
+  color: #dc3545;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.scraper-results {
+  background: #f8f9fa;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.results-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e1e5e9;
+}
+
+.results-icon {
+  font-size: 24px;
+  color: #28a745;
+}
+
+.results-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.results-timestamp {
+  margin-left: auto;
+  font-size: 12px;
+  color: #666;
+  background: #e9ecef;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.results-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.stat-value.success {
+  color: #28a745;
+}
+
+.stat-value.error {
+  color: #dc3545;
+}
+
+.scraped-people {
+  margin-bottom: 24px;
+}
+
+.people-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 16px;
+}
+
+.people-list {
+  display: grid;
+  gap: 16px;
+}
+
+.person-item {
+  background: white;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  padding: 16px;
+  transition: box-shadow 0.2s ease;
+}
+
+.person-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.person-header {
+  margin-bottom: 12px;
+}
+
+.person-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.person-title {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.4;
+}
+
+.person-location {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 12px;
+}
+
+.person-linkedin a {
+  color: #0073b1;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border: 1px solid #0073b1;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.person-linkedin a:hover {
+  background: #0073b1;
+  color: white;
+}
+
+.scraper-errors {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e1e5e9;
+}
+
+.errors-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #dc3545;
+  margin-bottom: 12px;
+}
+
+.errors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.error-item {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #dc3545;
+}
+
+.scraper-tips {
+  background: #f8f9fa;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.tips-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 16px;
+}
+
+.tips-list {
+  margin: 0;
+  padding-left: 20px;
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.tips-list li {
+  margin-bottom: 8px;
+}
+
+.tips-list li:last-child {
+  margin-bottom: 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .people-scraper {
+    padding: 20px;
+  }
+  
+  .scraper-controls {
+    gap: 16px;
+  }
+  
+  .results-stats {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .people-list {
+    gap: 12px;
+  }
+  
+  .person-item {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .people-scraper {
+    padding: 16px;
+  }
+  
+  .scraper-header h3 {
+    font-size: 18px;
+  }
+  
+  .scrape-button {
+    padding: 12px 20px;
+    font-size: 14px;
+  }
+}

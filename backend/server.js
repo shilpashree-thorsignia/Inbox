@@ -5,6 +5,7 @@ const sqlite3 = require('sqlite3').verbose();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const UserManager = require('./userManager');
+const { scrapeCompanyPeople } = require('./scrapePeople');
 puppeteer.use(StealthPlugin());
 
 const app = express();
@@ -4508,6 +4509,92 @@ app.post('/api/sync-conversations', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to sync conversations', 
+      error: error.message 
+    });
+  }
+});
+
+// Scrape people from company page endpoint
+app.post('/api/scrape-people', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  
+  try {
+    const { companyUrl, limit = 10 } = req.body;
+    
+    console.log(`Starting people scraping from ${companyUrl} with limit: ${limit} for user ${req.user.id}`);
+    
+    // Validate URL
+    if (!companyUrl || !companyUrl.includes('linkedin.com/company/')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid LinkedIn company URL. Must be a company people page.'
+      });
+    }
+    
+    // Check rate limiting before proceeding
+    const rateLimitCheck = canScrapeConversations();
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        message: rateLimitCheck.reason,
+        waitTime: rateLimitCheck.waitTime,
+        rateLimitStatus: getRateLimitStatus()
+      });
+    }
+    
+    console.log(`Starting people scraping with limit: ${limit} (Confidence: ${rateLimitCheck.confidence?.toFixed(2) || 'N/A'})`);
+    
+    const result = await scrapeCompanyPeople(companyUrl, limit, req.user.id);
+    
+    // Record the scraping activity
+    recordConversationScrape();
+    
+    res.json({ 
+      success: true, 
+      message: `Successfully scraped ${result.scrapedPeople} people from ${result.companyName}`, 
+      data: result,
+      rateLimitStatus: getRateLimitStatus()
+    });
+  } catch (error) {
+    console.error('Error during people scraping:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to scrape people', 
+      error: error.message 
+    });
+  }
+});
+
+// Get scraped people from database endpoint
+app.get('/api/people/:companyName', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  
+  try {
+    const { companyName } = req.params;
+    const { getPeopleFromDatabase } = require('./scrapePeople');
+    
+    console.log(`Retrieving people for company: ${companyName} for user ${req.user.id}`);
+    
+    const people = await getPeopleFromDatabase(companyName, req.user.id);
+    
+    res.json({ 
+      success: true, 
+      message: `Retrieved ${people.length} people for ${companyName}`,
+      data: {
+        companyName,
+        people,
+        count: people.length
+      }
+    });
+  } catch (error) {
+    console.error('Error retrieving people:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve people', 
       error: error.message 
     });
   }
